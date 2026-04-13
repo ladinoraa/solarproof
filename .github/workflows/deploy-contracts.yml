@@ -1,0 +1,54 @@
+name: Deploy Contracts
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/contracts/**']
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Target network
+        required: true
+        default: testnet
+        type: choice
+        options: [testnet, mainnet]
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.network || 'testnet' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+      - name: Build
+        run: stellar contract build
+        working-directory: apps/contracts
+      - name: Deploy energy_token
+        run: |
+          stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/energy_token.wasm \
+            --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
+            --network ${{ github.event.inputs.network || 'testnet' }}
+        working-directory: apps/contracts
+      - name: Deploy audit_registry
+        run: |
+          stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/audit_registry.wasm \
+            --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
+            --network ${{ github.event.inputs.network || 'testnet' }}
+        working-directory: apps/contracts
+      - name: Deploy community_governance
+        run: |
+          stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/community_governance.wasm \
+            --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
+            --network ${{ github.event.inputs.network || 'testnet' }}
+        working-directory: apps/contracts

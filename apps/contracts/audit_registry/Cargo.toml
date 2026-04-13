@@ -1,0 +1,15 @@
+[package]
+name = "audit-registry"
+version = "1.0.0"
+edition = "2021"
+description = "Immutable on-chain anchor of Ed25519-signed meter readings"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

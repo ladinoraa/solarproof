@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (lint + type-check + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+        working-directory: apps/web
+      - run: pnpm type-check
+        working-directory: apps/web
+      - run: pnpm build
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+          NEXT_PUBLIC_ENERGY_TOKEN_ID: placeholder
+          NEXT_PUBLIC_AUDIT_REGISTRY_ID: placeholder
+          NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
+
+  contracts:
+    name: Contracts (fmt + clippy + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: fmt
+        run: cargo fmt --all -- --check
+        working-directory: apps/contracts
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: apps/contracts
+      - name: test
+        run: cargo test --all
+        working-directory: apps/contracts
