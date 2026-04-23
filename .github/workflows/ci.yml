@@ -37,6 +37,8 @@ jobs:
           NEXT_PUBLIC_ENERGY_TOKEN_ID: placeholder
           NEXT_PUBLIC_AUDIT_REGISTRY_ID: placeholder
           NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          MINTER_SECRET_KEY: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
   contracts:
     name: Contracts (fmt + clippy + test)
