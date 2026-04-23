@@ -147,6 +147,20 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::VoterCount, &0_u32);
         let proposals: Map<u32, Proposal> = Map::new(&env);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.storage().instance().set(&DataKey::Version, &String::from_str(&env, VERSION));
+    }
+
+    pub fn get_version(env: Env) -> String {
+        env.storage().instance()
+            .get(&DataKey::Version)
+            .unwrap_or_else(|| String::from_str(&env, VERSION))
+    }
+
+    /// Migrate state schema to a new version. Admin-only.
+    pub fn migrate(env: Env, new_version: String) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
     /// Submit a new proposal.

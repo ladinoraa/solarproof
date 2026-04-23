@@ -38,6 +38,8 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, BytesN, Env};
 
+const VERSION: &str = "1.0.0";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -64,6 +66,7 @@ pub enum DataKey {
     Anchor(BytesN<32>),
     /// `u32` — total number of anchors stored.
     TotalAnchors,
+    Version,
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +92,20 @@ impl AuditRegistry {
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TotalAnchors, &0_u32);
+        env.storage().instance().set(&DataKey::Version, &soroban_sdk::String::from_str(&env, VERSION));
+    }
+
+    pub fn get_version(env: Env) -> soroban_sdk::String {
+        env.storage().instance()
+            .get(&DataKey::Version)
+            .unwrap_or_else(|| soroban_sdk::String::from_str(&env, VERSION))
+    }
+
+    /// Migrate state schema to a new version. Admin-only.
+    pub fn migrate(env: Env, new_version: soroban_sdk::String) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
     /// Anchor a reading hash on-chain.
@@ -212,5 +229,11 @@ mod tests {
     fn test_double_initialize_rejected() {
         let (env, client) = setup();
         client.initialize(&soroban_sdk::Address::generate(&env));
+    }
+
+    #[test]
+    fn test_version() {
+        let (env, client) = setup();
+        assert_eq!(client.get_version(), soroban_sdk::String::from_str(&env, "1.0.0"));
     }
 }

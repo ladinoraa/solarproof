@@ -269,6 +269,12 @@ mod tests {
     }
 
     #[test]
+    fn test_version() {
+        let (_, client) = setup();
+        assert_eq!(client.get_version(), String::from_str(&soroban_sdk::Env::default(), "1.0.0"));
+    }
+
+    #[test]
     #[should_panic(expected = "insufficient balance")]
     fn test_burn_overdraft() {
         let (env, _, client) = setup();
