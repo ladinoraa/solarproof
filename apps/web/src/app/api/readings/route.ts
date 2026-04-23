@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
+import { invalidateCert } from '@/lib/cache'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -112,6 +113,9 @@ export async function POST(req: NextRequest) {
       issued_at: new Date().toISOString(),
       retired: false,
     })
+
+    // Invalidate any stale cache entries for this certificate
+    await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
