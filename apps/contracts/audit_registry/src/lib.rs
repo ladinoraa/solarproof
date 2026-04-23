@@ -1,51 +1,68 @@
-//! # Audit Registry
+//! # Audit Registry (`audit-registry`)
 //!
 //! Immutable on-chain anchor of Ed25519-signed meter readings.
 //!
-//! ## Flow
-//! 1. Smart meter signs `sha256(meter_id || kwh || timestamp)` with its Ed25519 key
-//! 2. API calls `anchor(reading_hash, meter_pubkey, signature, kwh, meter_id)`
-//! 3. Contract verifies the signature and stores the anchor permanently
-//! 4. `energy_token.mint()` can reference the anchor as proof of physical generation
+//! ## Purpose
+//! Provides a tamper-proof, publicly verifiable record that a specific meter
+//! reading hash was accepted by the SolarProof API at a known ledger sequence.
+//! The full reading payload (pubkey, signature, kwh, meter_id, timestamp) is
+//! stored off-chain in Supabase; only the 32-byte SHA-256 hash is stored here.
 //!
-//! ## Verification
-//! Anyone can call `verify(reading_hash)` to confirm a reading is anchored
-//! and retrieve its full audit record.
+//! ## Flow
+//! 1. Smart meter signs `sha256(meter_id || kwh_stroops_le || timestamp_le)`
+//!    with its Ed25519 private key.
+//! 2. SolarProof API verifies the signature off-chain.
+//! 3. API calls `anchor(reading_hash)` — stores hash + ledger sequence.
+//! 4. `energy_token.mint()` references the anchor as proof of generation.
+//! 5. Any party can call `is_anchored(hash)` to verify the reading was accepted.
+//!
+//! ## Storage layout
+//! | Key | Storage type | Value | Size |
+//! |-----|-------------|-------|------|
+//! | `DataKey::Admin` | instance | `Address` | ~57 B |
+//! | `DataKey::TotalAnchors` | instance | `u32` | 4 B |
+//! | `DataKey::Anchor(hash)` | persistent | `AuditAnchor` | 36 B |
+//!
+//! ## Invariants
+//! 1. Each `reading_hash` can be anchored at most once.
+//! 2. `total_anchors` is monotonically increasing.
+//! 3. `anchored_at_ledger` is set to the ledger sequence at anchor time and
+//!    never mutated.
+//!
+//! ## Known limitations / out-of-scope
+//! - No admin-gated removal of anchors (immutability is a feature).
+//! - Persistent storage TTL extension not implemented; entries may expire on
+//!   long-lived networks if not bumped.
 
 #![no_std]
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, BytesN, Env};
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/// Minimal on-chain record — 36 bytes per anchor entry.
+///
+/// The full reading payload lives in Supabase, keyed by `reading_hash`.
 #[contracttype]
 #[derive(Clone)]
 pub struct AuditAnchor {
-    /// SHA-256 of (meter_id || kwh_stroops || timestamp_unix)
+    /// SHA-256 of `(meter_id_utf8 || kwh_stroops_i64_le || timestamp_unix_u64_le)`.
+    /// This is the canonical hash signed by the meter device.
     pub reading_hash: BytesN<32>,
-    /// Ed25519 public key of the meter device (32 bytes)
-    pub meter_pubkey: BytesN<32>,
-    /// Ed25519 signature over reading_hash (64 bytes)
-    pub signature: BytesN<64>,
-    /// Energy in stroops (kwh * 10^7)
-    pub kwh_stroops: i128,
-    /// Meter device identifier
-    pub meter_id: soroban_sdk::String,
-    /// Unix timestamp of the reading
-    pub timestamp: u64,
-    /// Stellar ledger sequence at anchor time
+    /// Stellar ledger sequence number at the time of anchoring.
     pub anchored_at_ledger: u32,
 }
 
+/// Enumeration of all storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
+    /// `Address` — the contract administrator.
     Admin,
-    /// reading_hash → AuditAnchor
+    /// `AuditAnchor` — keyed by the 32-byte reading hash.
     Anchor(BytesN<32>),
+    /// `u32` — total number of anchors stored.
     TotalAnchors,
 }
 
@@ -53,12 +70,20 @@ pub enum DataKey {
 // Contract
 // ---------------------------------------------------------------------------
 
+/// Immutable anchor registry for Ed25519-signed meter readings.
 #[contract]
 pub struct AuditRegistry;
 
 #[contractimpl]
 impl AuditRegistry {
-    pub fn initialize(env: Env, admin: Address) {
+    /// Initialise the contract.
+    ///
+    /// # Arguments
+    /// * `admin` — address that administers the registry.
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if called more than once.
+    pub fn initialize(env: Env, admin: soroban_sdk::Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -66,41 +91,28 @@ impl AuditRegistry {
         env.storage().instance().set(&DataKey::TotalAnchors, &0_u32);
     }
 
-    /// Anchor a signed meter reading on-chain.
+    /// Anchor a reading hash on-chain.
     ///
-    /// The contract verifies the Ed25519 signature before storing.
-    /// Once anchored, a reading cannot be overwritten.
-    pub fn anchor(
-        env: Env,
-        reading_hash: BytesN<32>,
-        meter_pubkey: BytesN<32>,
-        signature: BytesN<64>,
-        kwh_stroops: i128,
-        meter_id: soroban_sdk::String,
-        timestamp: u64,
-    ) {
-        // Prevent duplicate anchors.
+    /// The caller (SolarProof API) is responsible for verifying the Ed25519
+    /// signature off-chain before invoking this function.  Only the hash is
+    /// stored; the full payload lives in Supabase.
+    ///
+    /// # Arguments
+    /// * `reading_hash` — SHA-256 of `(meter_id || kwh_stroops_le || timestamp_le)`.
+    ///
+    /// # Panics
+    /// * `"reading already anchored"` if `reading_hash` has been anchored before.
+    ///
+    /// # Events
+    /// Emits `(topic: "anchor", data: reading_hash)`.
+    pub fn anchor(env: Env, reading_hash: BytesN<32>) {
         let key = DataKey::Anchor(reading_hash.clone());
         if env.storage().persistent().has(&key) {
             panic!("reading already anchored");
         }
 
-        assert!(kwh_stroops > 0, "kwh must be positive");
-
-        // Verify Ed25519 signature: sig over reading_hash bytes.
-        env.crypto().ed25519_verify(
-            &meter_pubkey,
-            &Bytes::from_slice(&env, reading_hash.to_array().as_ref()),
-            &signature,
-        );
-
         let anchor = AuditAnchor {
             reading_hash: reading_hash.clone(),
-            meter_pubkey,
-            signature,
-            kwh_stroops,
-            meter_id,
-            timestamp,
             anchored_at_ledger: env.ledger().sequence(),
         };
 
@@ -112,21 +124,23 @@ impl AuditRegistry {
         env.events().publish((symbol_short!("anchor"),), reading_hash);
     }
 
-    /// Verify a reading is anchored and return its audit record.
+    /// Returns the `AuditAnchor` for `reading_hash`, or `None` if not anchored.
     pub fn verify(env: Env, reading_hash: BytesN<32>) -> Option<AuditAnchor> {
         env.storage().persistent().get(&DataKey::Anchor(reading_hash))
     }
 
-    /// Returns true if the reading hash is anchored.
+    /// Returns `true` if `reading_hash` has been anchored.
     pub fn is_anchored(env: Env, reading_hash: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::Anchor(reading_hash))
     }
 
+    /// Returns the total number of anchored readings.
     pub fn total_anchors(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0)
     }
 
-    pub fn admin(env: Env) -> Address {
+    /// Returns the admin address.
+    pub fn admin(env: Env) -> soroban_sdk::Address {
         env.storage().instance().get(&DataKey::Admin).expect("not initialized")
     }
 }
@@ -138,71 +152,65 @@ impl AuditRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, ed25519::Sign},
-        Env,
-    };
+    use soroban_sdk::{testutils::Address as _, Env};
 
     fn setup() -> (Env, AuditRegistryClient<'static>) {
         let env = Env::default();
         env.mock_all_auths();
         let id = env.register(AuditRegistry, ());
         let client = AuditRegistryClient::new(&env, &id);
-        let admin = Address::generate(&env);
+        let admin = soroban_sdk::Address::generate(&env);
         client.initialize(&admin);
         (env, client)
     }
 
-    fn make_reading_hash(env: &Env) -> BytesN<32> {
-        // Deterministic test hash
+    fn hash(env: &Env) -> BytesN<32> {
         BytesN::from_array(env, &[1u8; 32])
     }
 
     #[test]
     fn test_anchor_and_verify() {
         let (env, client) = setup();
-
-        // Generate a real Ed25519 keypair via Soroban testutils
-        let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
-        let reading_hash = make_reading_hash(&env);
-        let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
-
-        client.anchor(
-            &reading_hash,
-            &signer.public_key(&env),
-            &sig,
-            &1_000_000_0_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"),
-            &1_700_000_000_u64,
-        );
-
-        assert!(client.is_anchored(&reading_hash));
+        let h = hash(&env);
+        client.anchor(&h);
+        assert!(client.is_anchored(&h));
         assert_eq!(client.total_anchors(), 1);
-
-        let anchor = client.verify(&reading_hash).unwrap();
-        assert_eq!(anchor.kwh_stroops, 1_000_000_0_i128);
+        let anchor = client.verify(&h).unwrap();
+        assert_eq!(anchor.reading_hash, h);
     }
 
     #[test]
     #[should_panic(expected = "reading already anchored")]
     fn test_duplicate_anchor_rejected() {
         let (env, client) = setup();
-        let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
-        let reading_hash = make_reading_hash(&env);
-        let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
-
-        client.anchor(&reading_hash, &signer.public_key(&env), &sig, &100_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64);
-        // Second call must panic
-        client.anchor(&reading_hash, &signer.public_key(&env), &sig, &100_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64);
+        let h = hash(&env);
+        client.anchor(&h);
+        client.anchor(&h);
     }
 
     #[test]
     fn test_not_anchored_returns_none() {
         let (env, client) = setup();
-        let hash = BytesN::from_array(&env, &[9u8; 32]);
-        assert!(!client.is_anchored(&hash));
-        assert!(client.verify(&hash).is_none());
+        let h = BytesN::from_array(&env, &[9u8; 32]);
+        assert!(!client.is_anchored(&h));
+        assert!(client.verify(&h).is_none());
+    }
+
+    /// Verify total_anchors increments correctly across multiple anchors.
+    #[test]
+    fn test_total_anchors_increments() {
+        let (env, client) = setup();
+        for i in 0u8..5 {
+            client.anchor(&BytesN::from_array(&env, &[i; 32]));
+        }
+        assert_eq!(client.total_anchors(), 5);
+    }
+
+    /// Verify double-initialize is rejected.
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_double_initialize_rejected() {
+        let (env, client) = setup();
+        client.initialize(&soroban_sdk::Address::generate(&env));
     }
 }

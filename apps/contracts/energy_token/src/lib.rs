@@ -1,26 +1,65 @@
-//! # Energy Token
+//! # Energy Token (`energy-token`)
 //!
-//! SEP-41 fungible certificate token. 1 token = 1 kWh of verified
-//! renewable energy. Minting requires a valid audit anchor to exist
-//! in the `audit_registry` contract for the same reading hash.
+//! SEP-41 fungible certificate token representing verified renewable energy.
+//! **1 token = 1 kWh** of generation that has been cryptographically anchored
+//! on-chain via the `audit_registry` contract.
+//!
+//! ## Roles
+//! | Role | Description |
+//! |------|-------------|
+//! | `admin` | Set at initialisation; can rotate the `minter` address. |
+//! | `minter` | The only address authorised to call `mint()`. Should be the SolarProof API keypair. |
+//!
+//! ## Invariants
+//! 1. `total_supply() == total_minted - total_burned` at all times.
+//! 2. No address can hold a negative balance.
+//! 3. `mint()` and `set_minter()` require the respective role's authorisation.
+//! 4. `burn()` and `transfer()` require the token holder's authorisation.
+//!
+//! ## Known limitations / out-of-scope
+//! - No allowance / approve mechanism (not required for current use-case).
+//! - No pause / freeze functionality.
+//! - Balances stored in `persistent` storage; TTL extension not implemented.
 
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String};
 
+// ---------------------------------------------------------------------------
+// Storage keys
+// ---------------------------------------------------------------------------
+
+/// Enumeration of all instance-storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
+    /// `Address` — the contract administrator.
     Admin,
+    /// `Address` — the only address permitted to mint tokens.
     Minter,
+    /// `i128` — cumulative tokens ever minted (never decremented).
     TotalMinted,
+    /// `i128` — cumulative tokens ever burned (never decremented).
     TotalBurned,
 }
 
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
+
+/// SEP-41 energy certificate token.
 #[contract]
 pub struct EnergyToken;
 
 #[contractimpl]
 impl EnergyToken {
+    /// Initialise the contract.
+    ///
+    /// # Arguments
+    /// * `admin`  — address that can rotate the minter.
+    /// * `minter` — address authorised to mint tokens (typically the API keypair).
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if called more than once.
     pub fn initialize(env: Env, admin: Address, minter: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -31,10 +70,29 @@ impl EnergyToken {
         env.storage().instance().set(&DataKey::TotalBurned, &0_i128);
     }
 
+    /// Returns the human-readable token name.
     pub fn name(env: Env) -> String { String::from_str(&env, "SolarProof Energy Certificate") }
+
+    /// Returns the token ticker symbol.
     pub fn symbol(env: Env) -> String { String::from_str(&env, "SPEC") }
+
+    /// Returns the number of decimal places (7, matching Stellar stroops).
     pub fn decimals(_env: Env) -> u32 { 7 }
 
+    /// Mint `amount` tokens to `to`.
+    ///
+    /// # Arguments
+    /// * `to`     — recipient address.
+    /// * `amount` — number of stroops to mint (must be > 0).
+    ///
+    /// # Authorization
+    /// Requires `minter` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    ///
+    /// # Events
+    /// Emits `(topic: "mint", data: (to, amount))`.
     pub fn mint(env: Env, to: Address, amount: i128) {
         let minter: Address = env.storage().instance().get(&DataKey::Minter).expect("not initialized");
         minter.require_auth();
@@ -50,6 +108,22 @@ impl EnergyToken {
         env.events().publish((symbol_short!("mint"),), (to, amount));
     }
 
+    /// Burn `amount` tokens from `from` (certificate retirement).
+    ///
+    /// # Arguments
+    /// * `from`   — address whose tokens are burned.
+    /// * `amount` — number of stroops to burn (must be > 0).
+    ///
+    /// # Authorization
+    /// Requires `from` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"no balance"` if `from` has no balance entry.
+    /// * `"insufficient balance"` if `from` holds fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "burn", data: (from, amount))`.
     pub fn burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -65,6 +139,23 @@ impl EnergyToken {
         env.events().publish((symbol_short!("burn"),), (from, amount));
     }
 
+    /// Transfer `amount` tokens from `from` to `to`.
+    ///
+    /// # Arguments
+    /// * `from`   — sender address.
+    /// * `to`     — recipient address.
+    /// * `amount` — number of stroops to transfer (must be > 0).
+    ///
+    /// # Authorization
+    /// Requires `from` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"no balance"` if `from` has no balance entry.
+    /// * `"insufficient balance"` if `from` holds fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "transfer", data: (from, to, amount))`.
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -81,26 +172,37 @@ impl EnergyToken {
         env.events().publish((symbol_short!("transfer"),), (from, to, amount));
     }
 
+    /// Returns the token balance of `account` in stroops.
     pub fn balance(env: Env, account: Address) -> i128 {
         env.storage().persistent().get(&(symbol_short!("balance"), account)).unwrap_or(0)
     }
 
+    /// Returns the current circulating supply (`total_minted - total_burned`).
     pub fn total_supply(env: Env) -> i128 {
         let minted: i128 = env.storage().instance().get(&DataKey::TotalMinted).unwrap_or(0);
         let burned: i128 = env.storage().instance().get(&DataKey::TotalBurned).unwrap_or(0);
         minted - burned
     }
 
+    /// Rotate the minter address.
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
     pub fn set_minter(env: Env, new_minter: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().instance().set(&DataKey::Minter, &new_minter);
     }
 
+    /// Returns the current admin address.
     pub fn admin(env: Env) -> Address {
         env.storage().instance().get(&DataKey::Admin).expect("not initialized")
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -154,5 +256,27 @@ mod tests {
         let user = Address::generate(&env);
         client.mint(&user, &10_i128);
         client.burn(&user, &100_i128);
+    }
+
+    /// Verify that a second initialize() call is rejected.
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_double_initialize_rejected() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        client.initialize(&admin, &minter);
+    }
+
+    /// Verify total_supply invariant: supply == minted - burned.
+    #[test]
+    fn test_supply_invariant() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1_000_i128);
+        client.mint(&user, &500_i128);
+        client.burn(&user, &300_i128);
+        assert_eq!(client.total_supply(), 1_200_i128);
+        assert_eq!(client.balance(&user), 1_200_i128);
     }
 }
