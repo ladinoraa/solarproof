@@ -16,6 +16,17 @@ pub enum DataKey {
     TotalBurned,
 }
 
+#[derive(Debug)]
+pub enum TokenError {
+    Overflow = 1,
+}
+
+impl From<TokenError> for soroban_sdk::Error {
+    fn from(e: TokenError) -> Self {
+        soroban_sdk::Error::from_contract_error(e as u32)
+    }
+}
+
 #[contract]
 pub struct EnergyToken;
 
@@ -42,10 +53,14 @@ impl EnergyToken {
 
         let key = (symbol_short!("balance"), to.clone());
         let bal: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(bal + amount));
+        let new_bal = bal.checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: balance"));
+        env.storage().persistent().set(&key, &new_bal);
 
         let total: i128 = env.storage().instance().get(&DataKey::TotalMinted).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalMinted, &(total + amount));
+        let new_total = total.checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: total_minted"));
+        env.storage().instance().set(&DataKey::TotalMinted, &new_total);
 
         env.events().publish((symbol_short!("mint"),), (to, amount));
     }
@@ -60,7 +75,9 @@ impl EnergyToken {
         env.storage().persistent().set(&key, &(bal - amount));
 
         let total: i128 = env.storage().instance().get(&DataKey::TotalBurned).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalBurned, &(total + amount));
+        let new_total = total.checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: total_burned"));
+        env.storage().instance().set(&DataKey::TotalBurned, &new_total);
 
         env.events().publish((symbol_short!("burn"),), (from, amount));
     }
@@ -77,7 +94,9 @@ impl EnergyToken {
         let tb: i128 = env.storage().persistent().get(&tk).unwrap_or(0);
 
         env.storage().persistent().set(&fk, &(fb - amount));
-        env.storage().persistent().set(&tk, &(tb + amount));
+        let new_tb = tb.checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: recipient balance"));
+        env.storage().persistent().set(&tk, &new_tb);
         env.events().publish((symbol_short!("transfer"),), (from, to, amount));
     }
 
@@ -154,5 +173,53 @@ mod tests {
         let user = Address::generate(&env);
         client.mint(&user, &10_i128);
         client.burn(&user, &100_i128);
+    }
+
+    /// Minting exactly i128::MAX should succeed.
+    #[test]
+    fn test_mint_max_i128() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &i128::MAX);
+        assert_eq!(client.balance(&user), i128::MAX);
+        assert_eq!(client.total_supply(), i128::MAX);
+    }
+
+    /// Minting beyond i128::MAX must panic with overflow message.
+    #[test]
+    #[should_panic(expected = "overflow: balance")]
+    fn test_mint_overflow_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &i128::MAX);
+        // Second mint of 1 would overflow the balance
+        client.mint(&user, &1_i128);
+    }
+
+    /// Fuzz-style: mint a range of large amounts and verify supply stays consistent.
+    #[test]
+    fn test_fuzz_mint_amounts() {
+        let amounts: &[i128] = &[
+            1,
+            1_000,
+            1_000_000,
+            1_000_000_000,
+            1_000_000_000_000,
+            i128::MAX / 4,
+            i128::MAX / 2,
+        ];
+        for &amount in amounts {
+            let env = Env::default();
+            env.mock_all_auths();
+            let id = env.register(EnergyToken, ());
+            let client = EnergyTokenClient::new(&env, &id);
+            let admin = Address::generate(&env);
+            let minter = Address::generate(&env);
+            client.initialize(&admin, &minter);
+            let user = Address::generate(&env);
+            client.mint(&user, &amount);
+            assert_eq!(client.balance(&user), amount);
+            assert_eq!(client.total_supply(), amount);
+        }
     }
 }
