@@ -1,0 +1,95 @@
+name: Testnet Integration
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/contracts/**'
+      - '.github/workflows/testnet.yml'
+
+concurrency:
+  group: testnet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testnet:
+    name: Deploy & test on Stellar testnet
+    runs-on: ubuntu-latest
+    environment: testnet
+    env:
+      DEPLOYER_SECRET_KEY: ${{ secrets.DEPLOYER_SECRET_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+
+      - name: Build contracts
+        run: stellar contract build
+        working-directory: apps/contracts
+
+      - name: Fund deployer account on testnet
+        run: |
+          DEPLOYER_PUB=$(stellar keys address --secret-key "$DEPLOYER_SECRET_KEY" 2>/dev/null || \
+            stellar keys generate --network testnet ci-deployer --fund && stellar keys address ci-deployer)
+          curl -s "https://friendbot.stellar.org?addr=${DEPLOYER_PUB}" > /dev/null
+          echo "DEPLOYER_PUB=${DEPLOYER_PUB}" >> "$GITHUB_ENV"
+
+      - name: Deploy energy_token
+        id: deploy_energy_token
+        run: |
+          ID=$(stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/energy_token.wasm \
+            --source "$DEPLOYER_SECRET_KEY" \
+            --network testnet)
+          echo "ENERGY_TOKEN_ID=${ID}" >> "$GITHUB_ENV"
+          echo "id=${ID}" >> "$GITHUB_OUTPUT"
+        working-directory: apps/contracts
+
+      - name: Deploy audit_registry
+        id: deploy_audit_registry
+        run: |
+          ID=$(stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/audit_registry.wasm \
+            --source "$DEPLOYER_SECRET_KEY" \
+            --network testnet)
+          echo "AUDIT_REGISTRY_ID=${ID}" >> "$GITHUB_ENV"
+          echo "id=${ID}" >> "$GITHUB_OUTPUT"
+        working-directory: apps/contracts
+
+      - name: Deploy community_governance
+        id: deploy_community_governance
+        run: |
+          ID=$(stellar contract deploy \
+            --wasm target/wasm32-unknown-unknown/release/community_governance.wasm \
+            --source "$DEPLOYER_SECRET_KEY" \
+            --network testnet)
+          echo "COMMUNITY_GOVERNANCE_ID=${ID}" >> "$GITHUB_ENV"
+          echo "id=${ID}" >> "$GITHUB_OUTPUT"
+        working-directory: apps/contracts
+
+      - name: Run integration tests against deployed contracts
+        run: cargo test --all -- --include-ignored
+        working-directory: apps/contracts
+        env:
+          STELLAR_NETWORK: testnet
+          ENERGY_TOKEN_ID: ${{ env.ENERGY_TOKEN_ID }}
+          AUDIT_REGISTRY_ID: ${{ env.AUDIT_REGISTRY_ID }}
+          COMMUNITY_GOVERNANCE_ID: ${{ env.COMMUNITY_GOVERNANCE_ID }}
+
+      - name: Cleanup — remove deployed contracts (let them expire)
+        if: always()
+        run: |
+          echo "Deployed contract IDs (will expire naturally on testnet):"
+          echo "  energy_token:        ${{ steps.deploy_energy_token.outputs.id }}"
+          echo "  audit_registry:      ${{ steps.deploy_audit_registry.outputs.id }}"
+          echo "  community_governance: ${{ steps.deploy_community_governance.outputs.id }}"
