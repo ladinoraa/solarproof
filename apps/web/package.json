@@ -11,6 +11,7 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
+    "@sentry/nextjs": "^9.0.0",
     "@solarproof/stellar": "workspace:*",
     "@stellar/stellar-sdk": "^13.1.0",
     "@supabase/supabase-js": "^2.46.2",
