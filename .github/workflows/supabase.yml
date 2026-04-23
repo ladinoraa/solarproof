@@ -1,0 +1,32 @@
+name: Supabase schema
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'supabase/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'supabase/**'
+
+jobs:
+  validate:
+    name: Validate migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: supabase start
+
+      - name: Reset DB (applies all migrations + seed)
+        run: supabase db reset
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: supabase stop

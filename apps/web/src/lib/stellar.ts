@@ -1,8 +1,6 @@
 import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract } from '@stellar/stellar-sdk'
 import { SorobanRpc } from '@stellar/stellar-sdk'
 import { kwhToStroops, amountToScVal, addressToScVal, bytesToScVal } from '@solarproof/stellar'
-import { nativeToScVal } from '@stellar/stellar-sdk'
-import { env } from '@/env'
 
 const NETWORK_PASSPHRASE = Networks.TESTNET
 const RPC_URL = 'https://soroban-testnet.stellar.org'
@@ -22,14 +20,15 @@ async function submitTx(tx: ReturnType<typeof TransactionBuilder.prototype.build
   return result.hash
 }
 
-/** Anchor a signed reading hash in the audit_registry contract. */
+/**
+ * Anchor a reading hash in the audit_registry contract.
+ *
+ * Only the 32-byte hash is stored on-chain (issue #59 optimisation).
+ * The full payload (pubkey, signature, kwh, meter_id, timestamp) is
+ * persisted off-chain in Supabase before this call.
+ */
 export async function anchorReading(params: {
   readingHash: Buffer
-  meterPubkeyHex: string
-  signatureHex: string
-  kwhStroops: bigint
-  meterId: string
-  timestampUnix: bigint
 }): Promise<string> {
   const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
   const server = getServer()
@@ -37,15 +36,7 @@ export async function anchorReading(params: {
   const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
 
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call(
-      'anchor',
-      bytesToScVal(params.readingHash),
-      bytesToScVal(Buffer.from(params.meterPubkeyHex, 'hex')),
-      bytesToScVal(Buffer.from(params.signatureHex, 'hex')),
-      amountToScVal(params.kwhStroops),
-      nativeToScVal(params.meterId, { type: 'string' }),
-      nativeToScVal(params.timestampUnix, { type: 'u64' }),
-    ))
+    .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
     .setTimeout(30)
     .build()
 
