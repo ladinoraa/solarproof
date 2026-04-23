@@ -31,8 +31,8 @@ jobs:
       - run: pnpm build
         working-directory: apps/web
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder' }}
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_ENERGY_TOKEN_ID: placeholder
           NEXT_PUBLIC_AUDIT_REGISTRY_ID: placeholder
