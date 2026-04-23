@@ -51,6 +51,21 @@ export async function anchorReading(params: {
   return submitTx(tx, minter)
 }
 
+/** Retire energy certificates on-chain (burns tokens, emits retire event). */
+export async function retireCertificate(ownerAddress: string, kwh: number): Promise<string> {
+  const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)
+  const server = getServer()
+  const account = await server.getAccount(minter.publicKey())
+  const contract = new Contract(process.env.NEXT_PUBLIC_ENERGY_TOKEN_ID!)
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(contract.call('retire', addressToScVal(ownerAddress), amountToScVal(kwhToStroops(kwh))))
+    .setTimeout(30)
+    .build()
+
+  return submitTx(tx, minter)
+}
+
 /** Mint energy certificates after a successful anchor. */
 export async function mintCertificates(recipientAddress: string, kwh: number): Promise<string> {
   const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)

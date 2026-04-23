@@ -91,6 +91,21 @@ impl EnergyToken {
         minted - burned
     }
 
+    pub fn retire(env: Env, from: Address, amount: i128) {
+        from.require_auth();
+        assert!(amount > 0, "amount must be positive");
+
+        let key = (symbol_short!("balance"), from.clone());
+        let bal: i128 = env.storage().persistent().get(&key).expect("no balance");
+        assert!(bal >= amount, "insufficient balance");
+        env.storage().persistent().set(&key, &(bal - amount));
+
+        let total: i128 = env.storage().instance().get(&DataKey::TotalBurned).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalBurned, &(total + amount));
+
+        env.events().publish((symbol_short!("retire"),), (from, amount));
+    }
+
     pub fn set_minter(env: Env, new_minter: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
