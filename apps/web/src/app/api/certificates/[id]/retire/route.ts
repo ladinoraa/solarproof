@@ -1,0 +1,76 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createServiceClient } from '@/lib/supabase'
+import { retireCertificate } from '@/lib/stellar'
+
+const RetireSchema = z.object({
+  wallet_address: z.string().min(1),
+})
+
+/**
+ * POST /api/certificates/[id]/retire
+ *
+ * Retires a certificate by calling the energy_token contract retire function.
+ * Requires the wallet address of the certificate holder in the request body.
+ *
+ * Body: { wallet_address }
+ */
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const body = await req.json().catch(() => null)
+  const parsed = RetireSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const { wallet_address } = parsed.data
+  const db = createServiceClient()
+
+  const { data: cert } = await db
+    .from('certificates')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!cert) {
+    return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })
+  }
+
+  if (cert.retired) {
+    return NextResponse.json({ error: 'Certificate already retired' }, { status: 409 })
+  }
+
+  let retireTxHash: string
+  try {
+    retireTxHash = await retireCertificate(wallet_address, cert.kwh)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Retire transaction failed'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+
+  const { data: updated, error: updateErr } = await db
+    .from('certificates')
+    .update({
+      retired: true,
+      retired_at: new Date().toISOString(),
+      retired_by: wallet_address,
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (updateErr || !updated) {
+    return NextResponse.json({ error: 'Failed to update certificate status' }, { status: 500 })
+  }
+
+  return NextResponse.json({
+    id: updated.id,
+    retired: updated.retired,
+    retired_at: updated.retired_at,
+    retired_by: updated.retired_by,
+    retire_tx_hash: retireTxHash,
+  })
+}
