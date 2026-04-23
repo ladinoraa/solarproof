@@ -30,10 +30,10 @@ async function submitTx(tx: ReturnType<typeof TransactionBuilder.prototype.build
 export async function anchorReading(params: {
   readingHash: Buffer
 }): Promise<string> {
-  const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)
+  const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
   const server = getServer()
   const account = await server.getAccount(minter.publicKey())
-  const contract = new Contract(process.env.NEXT_PUBLIC_AUDIT_REGISTRY_ID!)
+  const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
 
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
     .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
@@ -45,10 +45,10 @@ export async function anchorReading(params: {
 
 /** Mint energy certificates after a successful anchor. */
 export async function mintCertificates(recipientAddress: string, kwh: number): Promise<string> {
-  const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)
+  const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
   const server = getServer()
   const account = await server.getAccount(minter.publicKey())
-  const contract = new Contract(process.env.NEXT_PUBLIC_ENERGY_TOKEN_ID!)
+  const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
 
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
     .addOperation(contract.call('mint', addressToScVal(recipientAddress), amountToScVal(kwhToStroops(kwh))))
