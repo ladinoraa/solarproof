@@ -25,23 +25,47 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String};
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/// The lifecycle state of a proposal.
 #[contracttype]
 #[derive(Clone, PartialEq)]
-pub enum ProposalStatus { Active, Passed, Rejected, Expired }
+pub enum ProposalStatus {
+    /// Voting is open.
+    Active,
+    /// Voting closed; quorum reached with majority yes.
+    Passed,
+    /// Voting closed; quorum not reached or majority no.
+    Rejected,
+    /// Voting closed; no votes cast.
+    Expired,
+}
 
+/// A governance proposal.
 #[contracttype]
 #[derive(Clone)]
 pub struct Proposal {
+    /// Auto-incrementing proposal identifier (1-based).
     pub id: u32,
+    /// Address that submitted the proposal.
     pub proposer: Address,
+    /// Short human-readable title.
     pub title: String,
+    /// Full description of the proposal.
     pub description: String,
+    /// Number of yes votes cast.
     pub yes_votes: u32,
+    /// Number of no votes cast.
     pub no_votes: u32,
+    /// Ledger sequence at which voting closes (inclusive).
     pub end_ledger: u32,
+    /// Current lifecycle status.
     pub status: ProposalStatus,
 }
 
+/// Enumeration of all instance-storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
     Admin,
@@ -55,6 +79,7 @@ pub enum DataKey {
     VoterIndex(Address),
 }
 
+/// Cooperative governance contract.
 #[contract]
 pub struct CommunityGovernance;
 
@@ -102,6 +127,16 @@ fn bitmap_set(env: &Env, proposal_id: u32, idx: u32) {
 
 #[contractimpl]
 impl CommunityGovernance {
+    /// Initialise the contract.
+    ///
+    /// # Arguments
+    /// * `admin`                 — administrator address.
+    /// * `quorum`                — minimum yes-vote percentage to pass (1–100).
+    /// * `voting_period_ledgers` — number of ledgers each proposal stays open.
+    ///
+    /// # Panics
+    /// * `"already initialized"` if called more than once.
+    /// * `"quorum must be 1-100"` if `quorum` is out of range.
     pub fn initialize(env: Env, admin: Address, quorum: u32, voting_period_ledgers: u32) {
         if env.storage().instance().has(&DataKey::Admin) { panic!("already initialized"); }
         assert!(quorum > 0 && quorum <= 100, "quorum must be 1-100");
@@ -114,6 +149,18 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::Proposals, &proposals);
     }
 
+    /// Submit a new proposal.
+    ///
+    /// # Arguments
+    /// * `proposer`    — address submitting the proposal (must authorise).
+    /// * `title`       — short title.
+    /// * `description` — full description.
+    ///
+    /// # Authorization
+    /// Requires `proposer` authorisation.
+    ///
+    /// # Returns
+    /// The new proposal's ID.
     pub fn propose(env: Env, proposer: Address, title: String, description: String) -> u32 {
         proposer.require_auth();
         let mut count: u32 = env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0);
@@ -132,6 +179,21 @@ impl CommunityGovernance {
         count
     }
 
+    /// Cast a vote on an active proposal.
+    ///
+    /// # Arguments
+    /// * `voter`       — address casting the vote (must authorise).
+    /// * `proposal_id` — ID of the proposal to vote on.
+    /// * `approve`     — `true` for yes, `false` for no.
+    ///
+    /// # Authorization
+    /// Requires `voter` authorisation.
+    ///
+    /// # Panics
+    /// * `"already voted"` if `voter` has already voted on this proposal.
+    /// * `"proposal not found"` if `proposal_id` does not exist.
+    /// * `"proposal not active"` if the proposal is not in `Active` status.
+    /// * `"voting period ended"` if the current ledger exceeds `end_ledger`.
     pub fn vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {
         voter.require_auth();
 
@@ -154,6 +216,18 @@ impl CommunityGovernance {
         bitmap_set(&env, proposal_id, idx);
     }
 
+    /// Finalise a proposal after its voting period has ended.
+    ///
+    /// Outcome: `yes_votes * 100 / total >= quorum` → Passed, else Rejected.
+    /// If no votes were cast → Expired.
+    ///
+    /// # Panics
+    /// * `"proposal not found"` if `proposal_id` does not exist.
+    /// * `"already finalized"` if the proposal is not in `Active` status.
+    /// * `"voting still open"` if the current ledger has not passed `end_ledger`.
+    ///
+    /// # Events
+    /// Emits `(topic: "final", data: (proposal_id, status))`.
     pub fn finalize(env: Env, proposal_id: u32) {
         let mut proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
         let mut p = proposals.get(proposal_id).expect("proposal not found");
@@ -169,15 +243,21 @@ impl CommunityGovernance {
         env.events().publish((symbol_short!("final"),), (proposal_id, p.status));
     }
 
+    /// Returns the proposal with the given ID, or `None` if it does not exist.
     pub fn get_proposal(env: Env, proposal_id: u32) -> Option<Proposal> {
         let proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
         proposals.get(proposal_id)
     }
 
+    /// Returns the total number of proposals created.
     pub fn proposal_count(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
