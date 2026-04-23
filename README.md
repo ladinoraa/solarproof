@@ -105,6 +105,25 @@ stellar contract build
 cargo test
 ```
 
+### Docker (recommended for local development)
+
+Spin up the full stack — Next.js, Supabase, and Redis — with a single command:
+
+```bash
+cp apps/web/.env.example .env.local   # fill in your values
+docker compose up
+```
+
+The web app will be available at http://localhost:3000.
+
+Data is persisted in named Docker volumes (`supabase_data`, `redis_data`) so it survives container restarts.
+
+To stop and remove containers (volumes are kept):
+
+```bash
+docker compose down
+```
+
 ### Simulate a meter reading
 
 ```bash

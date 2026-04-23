@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
+import { invalidateCert } from '@/lib/cache'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -77,17 +78,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
-  // Anchor on-chain
+  // Anchor on-chain (hash only — full payload already in Supabase)
   let anchorTxHash: string
   try {
-    anchorTxHash = await anchorReading({
-      readingHash,
-      meterPubkeyHex: meter.pubkey_hex,
-      signatureHex: signature_hex,
-      kwhStroops,
-      meterId: meter_id,
-      timestampUnix: BigInt(timestamp),
-    })
+    anchorTxHash = await anchorReading({ readingHash })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Anchor failed'
@@ -112,6 +106,9 @@ export async function POST(req: NextRequest) {
       issued_at: new Date().toISOString(),
       retired: false,
     })
+
+    // Invalidate any stale cache entries for this certificate
+    await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
