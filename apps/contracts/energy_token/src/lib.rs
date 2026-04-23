@@ -40,6 +40,7 @@ pub enum DataKey {
     TotalMinted,
     /// `i128` — cumulative tokens ever burned (never decremented).
     TotalBurned,
+    Paused,
 }
 
 #[derive(Debug)]
@@ -74,6 +75,7 @@ impl EnergyToken {
         env.storage().instance().set(&DataKey::Minter, &minter);
         env.storage().instance().set(&DataKey::TotalMinted, &0_i128);
         env.storage().instance().set(&DataKey::TotalBurned, &0_i128);
+        env.storage().instance().set(&DataKey::Paused, &false);
     }
 
     /// Returns the human-readable token name.
@@ -103,6 +105,7 @@ impl EnergyToken {
         let minter: Address = env.storage().instance().get(&DataKey::Minter).expect("not initialized");
         minter.require_auth();
         assert!(amount > 0, "amount must be positive");
+        Self::require_not_paused(&env);
 
         let key = (symbol_short!("balance"), to.clone());
         let bal: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -137,6 +140,7 @@ impl EnergyToken {
     pub fn burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
+        Self::require_not_paused(&env);
 
         let key = (symbol_short!("balance"), from.clone());
         let bal: i128 = env.storage().persistent().get(&key).expect("no balance");
@@ -171,6 +175,7 @@ impl EnergyToken {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
+        Self::require_not_paused(&env);
 
         let fk = (symbol_short!("balance"), from.clone());
         let fb: i128 = env.storage().persistent().get(&fk).expect("no balance");
@@ -223,7 +228,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Env};
 
-    fn setup() -> (Env, EnergyTokenClient<'static>) {
+    fn setup() -> (Env, Address, EnergyTokenClient<'static>) {
         let env = Env::default();
         env.mock_all_auths();
         let id = env.register(EnergyToken, ());
@@ -231,12 +236,12 @@ mod tests {
         let admin = Address::generate(&env);
         let minter = Address::generate(&env);
         client.initialize(&admin, &minter);
-        (env, client)
+        (env, admin, client)
     }
 
     #[test]
     fn test_mint_burn_supply() {
-        let (env, client) = setup();
+        let (env, _, client) = setup();
         let user = Address::generate(&env);
         client.mint(&user, &1000_i128);
         assert_eq!(client.total_supply(), 1000_i128);
@@ -247,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_transfer() {
-        let (env, client) = setup();
+        let (env, _, client) = setup();
         let a = Address::generate(&env);
         let b = Address::generate(&env);
         client.mint(&a, &500_i128);
@@ -258,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_metadata() {
-        let (env, client) = setup();
+        let (env, _, client) = setup();
         assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
         assert_eq!(client.decimals(), 7);
     }
@@ -266,7 +271,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "insufficient balance")]
     fn test_burn_overdraft() {
-        let (env, client) = setup();
+        let (env, _, client) = setup();
         let user = Address::generate(&env);
         client.mint(&user, &10_i128);
         client.burn(&user, &100_i128);
