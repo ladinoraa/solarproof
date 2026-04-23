@@ -1,16 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { getCachedCert, setCachedCert } from '@/lib/cache'
 
 /**
  * GET /api/verify?id=<certificate_id_or_reading_hash_or_tx_hash>
  *
  * Public endpoint — no auth required.
  * Returns the full chain of custody for a certificate.
+ * Results are cached in Redis for 60 s (TTL defined in cache.ts).
  */
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')?.trim()
   if (!id) {
     return NextResponse.json({ error: 'id parameter required' }, { status: 400 })
+  }
+
+  // Cache lookup
+  const cached = await getCachedCert<unknown>(id)
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: {
+        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+        'X-Cache': 'HIT',
+      },
+    })
   }
 
   const db = createServiceClient()
@@ -60,5 +73,12 @@ export async function GET(req: NextRequest) {
       : null,
   }
 
-  return NextResponse.json(chain)
+  await setCachedCert(id, chain)
+
+  return NextResponse.json(chain, {
+    headers: {
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'X-Cache': 'MISS',
+    },
+  })
 }
