@@ -456,4 +456,163 @@ mod tests {
         // no approve call
         client.transfer_from(&spender, &owner, &recipient, &100_i128);
     }
+
+    // ── edge-case / coverage tests ───────────────────────────────────────────
+
+    // initialize
+
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_initialize_double_init_panics() {
+        let (env, client) = setup();
+        let a = Address::generate(&env);
+        client.initialize(&a, &a);
+    }
+
+    // balance
+
+    #[test]
+    fn test_balance_zero_for_unknown_account() {
+        let (env, client) = setup();
+        let unknown = Address::generate(&env);
+        assert_eq!(client.balance(&unknown), 0);
+    }
+
+    // total_supply
+
+    #[test]
+    fn test_total_supply_zero_before_mint() {
+        let (_, client) = setup();
+        assert_eq!(client.total_supply(), 0);
+    }
+
+    // mint
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_mint_zero_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &0_i128);
+    }
+
+    // transfer
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_transfer_zero_panics() {
+        let (env, client) = setup();
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        client.mint(&a, &100_i128);
+        client.transfer(&a, &b, &0_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "no balance")]
+    fn test_transfer_no_balance_panics() {
+        let (env, client) = setup();
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        client.transfer(&a, &b, &1_i128);
+    }
+
+    #[test]
+    fn test_transfer_self() {
+        let (env, client) = setup();
+        let a = Address::generate(&env);
+        client.mint(&a, &100_i128);
+        client.transfer(&a, &a, &40_i128);
+        assert_eq!(client.balance(&a), 100_i128);
+    }
+
+    // burn
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_burn_zero_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &100_i128);
+        client.burn(&user, &0_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "no balance")]
+    fn test_burn_no_balance_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.burn(&user, &1_i128);
+    }
+
+    // approve
+
+    #[test]
+    #[should_panic(expected = "amount must be non-negative")]
+    fn test_approve_negative_panics() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.approve(&owner, &spender, &-1_i128);
+    }
+
+    // transfer_from
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_transfer_from_zero_panics() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&owner, &100_i128);
+        client.approve(&owner, &spender, &100_i128);
+        client.transfer_from(&spender, &owner, &recipient, &0_i128);
+    }
+
+    // burn_from
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_burn_from_zero_panics() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.mint(&owner, &100_i128);
+        client.approve(&owner, &spender, &100_i128);
+        client.burn_from(&spender, &owner, &0_i128);
+    }
+
+    // set_minter
+
+    #[test]
+    fn test_set_minter_rotates() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let new_minter = Address::generate(&env);
+        client.initialize(&admin, &minter);
+        client.set_minter(&new_minter);
+        // new minter can mint; old minter's auth is no longer checked (mock_all_auths)
+        let user = Address::generate(&env);
+        client.mint(&user, &1_i128);
+        assert_eq!(client.balance(&user), 1_i128);
+    }
+
+    // admin
+
+    #[test]
+    fn test_admin_returns_correct_address() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        client.initialize(&admin, &minter);
+        assert_eq!(client.admin(), admin);
+    }
 }
