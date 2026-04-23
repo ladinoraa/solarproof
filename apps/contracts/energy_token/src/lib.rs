@@ -8,12 +8,15 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String};
 
+const VERSION: &str = "1.0.0";
+
 #[contracttype]
 pub enum DataKey {
     Admin,
     Minter,
     TotalMinted,
     TotalBurned,
+    Version,
 }
 
 #[contract]
@@ -29,6 +32,21 @@ impl EnergyToken {
         env.storage().instance().set(&DataKey::Minter, &minter);
         env.storage().instance().set(&DataKey::TotalMinted, &0_i128);
         env.storage().instance().set(&DataKey::TotalBurned, &0_i128);
+        env.storage().instance().set(&DataKey::Version, &String::from_str(&env, VERSION));
+    }
+
+    pub fn get_version(env: Env) -> String {
+        env.storage().instance()
+            .get(&DataKey::Version)
+            .unwrap_or_else(|| String::from_str(&env, VERSION))
+    }
+
+    /// Migrate state schema to a new version. Admin-only.
+    /// Extend this function when the state schema changes between versions.
+    pub fn migrate(env: Env, new_version: String) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
     pub fn name(env: Env) -> String { String::from_str(&env, "SolarProof Energy Certificate") }
@@ -145,6 +163,12 @@ mod tests {
         let (env, client) = setup();
         assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
         assert_eq!(client.decimals(), 7);
+    }
+
+    #[test]
+    fn test_version() {
+        let (_, client) = setup();
+        assert_eq!(client.get_version(), String::from_str(&soroban_sdk::Env::default(), "1.0.0"));
     }
 
     #[test]

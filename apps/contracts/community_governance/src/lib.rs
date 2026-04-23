@@ -4,6 +4,8 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String};
 
+const VERSION: &str = "1.0.0";
+
 #[contracttype]
 #[derive(Clone, PartialEq)]
 pub enum ProposalStatus { Active, Passed, Rejected, Expired }
@@ -22,7 +24,7 @@ pub struct Proposal {
 }
 
 #[contracttype]
-pub enum DataKey { Admin, ProposalCount, Proposals, Quorum, VotingPeriod }
+pub enum DataKey { Admin, ProposalCount, Proposals, Quorum, VotingPeriod, Version }
 
 #[contract]
 pub struct CommunityGovernance;
@@ -38,6 +40,20 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::ProposalCount, &0_u32);
         let proposals: Map<u32, Proposal> = Map::new(&env);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.storage().instance().set(&DataKey::Version, &String::from_str(&env, VERSION));
+    }
+
+    pub fn get_version(env: Env) -> String {
+        env.storage().instance()
+            .get(&DataKey::Version)
+            .unwrap_or_else(|| String::from_str(&env, VERSION))
+    }
+
+    /// Migrate state schema to a new version. Admin-only.
+    pub fn migrate(env: Env, new_version: String) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
     pub fn propose(env: Env, proposer: Address, title: String, description: String) -> u32 {
@@ -123,5 +139,11 @@ mod tests {
         env.ledger().with_mut(|l| l.sequence_number += 101);
         client.finalize(&id);
         assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Passed);
+    }
+
+    #[test]
+    fn test_version() {
+        let (env, client) = setup();
+        assert_eq!(client.get_version(), String::from_str(&env, "1.0.0"));
     }
 }
