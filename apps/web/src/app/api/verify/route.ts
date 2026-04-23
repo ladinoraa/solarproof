@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { getCachedCert, setCachedCert } from '@/lib/cache'
+
+// UUID or 64-char hex hash (reading_hash / tx_hash)
+const VerifyQuerySchema = z.object({
+  id: z.string().regex(/^[0-9a-f]{64}$|^[0-9a-f-]{36}$/i, 'id must be a UUID or 64-char hex hash'),
+})
 
 /**
  * GET /api/verify?id=<certificate_id_or_reading_hash_or_tx_hash>
@@ -10,10 +16,11 @@ import { getCachedCert, setCachedCert } from '@/lib/cache'
  * Results are cached in Redis for 60 s (TTL defined in cache.ts).
  */
 export async function GET(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get('id')?.trim()
-  if (!id) {
-    return NextResponse.json({ error: 'id parameter required' }, { status: 400 })
+  const parsed = VerifyQuerySchema.safeParse({ id: req.nextUrl.searchParams.get('id')?.trim() })
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
+  const { id } = parsed.data
 
   // Cache lookup
   const cached = await getCachedCert<unknown>(id)
@@ -26,14 +33,14 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const db = createServiceClient()
-
   // Try certificate ID first, then reading_hash, then mint_tx_hash
-  const { data: cert } = await db
-    .from('certificates')
-    .select('*')
-    .or(`id.eq.${id},reading_hash.eq.${id},mint_tx_hash.eq.${id}`)
-    .single()
+  // Use separate parameterised filters instead of raw .or() interpolation
+  const db = createServiceClient()
+  let cert = null
+  for (const column of ['id', 'reading_hash', 'mint_tx_hash'] as const) {
+    const { data } = await db.from('certificates').select('*').eq(column, id).maybeSingle()
+    if (data) { cert = data; break }
+  }
 
   if (!cert) {
     return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })

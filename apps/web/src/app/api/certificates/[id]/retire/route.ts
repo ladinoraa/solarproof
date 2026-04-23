@@ -7,6 +7,10 @@ const RetireSchema = z.object({
   wallet_address: z.string().min(1),
 })
 
+const ParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
 /**
  * POST /api/certificates/[id]/retire
  *
@@ -19,7 +23,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
+  const parsedParams = ParamsSchema.safeParse(await params)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 })
+  }
+  const { id } = parsedParams.data
   const body = await req.json().catch(() => null)
   const parsed = RetireSchema.safeParse(body)
   if (!parsed.success) {
