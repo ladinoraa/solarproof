@@ -1,0 +1,44 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging (Vercel)
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Vercel (staging)
+        run: |
+          pnpm dlx vercel deploy \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --scope ${{ secrets.VERCEL_ORG_ID }} \
+            --yes \
+            --env NEXT_PUBLIC_SUPABASE_URL=${{ secrets.STAGING_SUPABASE_URL }} \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.STAGING_SUPABASE_ANON_KEY }} \
+            --env NEXT_PUBLIC_STELLAR_NETWORK=testnet \
+            --env NEXT_PUBLIC_ENERGY_TOKEN_ID=${{ secrets.STAGING_ENERGY_TOKEN_ID }} \
+            --env NEXT_PUBLIC_AUDIT_REGISTRY_ID=${{ secrets.STAGING_AUDIT_REGISTRY_ID }} \
+            --env NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID=${{ secrets.STAGING_COMMUNITY_GOVERNANCE_ID }} \
+            --env MINTER_SECRET_KEY=${{ secrets.STAGING_MINTER_SECRET_KEY }} \
+            apps/web
+        id: deploy
+
+      - name: Comment staging URL on commit
+        run: |
+          echo "Staging deployed: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY

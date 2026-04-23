@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "buildCommand": "cd ../.. && pnpm build --filter=web",
+  "outputDirectory": "apps/web/.next",
+  "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "develop": true
+    }
+  },
+  "environments": {
+    "staging": {
+      "branch": "develop",
+      "environmentVariables": {
+        "NEXT_PUBLIC_STELLAR_NETWORK": "testnet"
+      }
+    },
+    "production": {
+      "branch": "main",
+      "environmentVariables": {
+        "NEXT_PUBLIC_STELLAR_NETWORK": "testnet"
+      }
+    }
+  }
+}
