@@ -77,6 +77,8 @@ pub enum DataKey {
     VoterCount,
     /// voter_address → voter_index (u32)
     VoterIndex(Address),
+    /// Reentrancy lock for vote(). Set to true while vote() is executing.
+    VoteLock,
 }
 
 /// Cooperative governance contract.
@@ -204,6 +206,7 @@ impl CommunityGovernance {
     /// Requires `voter` authorisation.
     ///
     /// # Panics
+    /// * `"reentrant call"` if vote() is called while already executing.
     /// * `"already voted"` if `voter` has already voted on this proposal.
     /// * `"proposal not found"` if `proposal_id` does not exist.
     /// * `"proposal not active"` if the proposal is not in `Active` status.
@@ -211,9 +214,17 @@ impl CommunityGovernance {
     pub fn vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {
         voter.require_auth();
 
-        // Assign / look up voter index and check bitmap
+        // ── reentrancy guard ──────────────────────────────────────────────
+        if env.storage().instance().get::<_, bool>(&DataKey::VoteLock).unwrap_or(false) {
+            panic!("reentrant call");
+        }
+        env.storage().instance().set(&DataKey::VoteLock, &true);
+
+        // Assign / look up voter index and check bitmap (state read before any
+        // external interaction — checks-effects-interactions pattern).
         let idx = voter_index(&env, &voter);
         if bitmap_get(&env, proposal_id, idx) {
+            env.storage().instance().set(&DataKey::VoteLock, &false);
             panic!("already voted");
         }
 
@@ -222,12 +233,16 @@ impl CommunityGovernance {
         assert!(p.status == ProposalStatus::Active, "proposal not active");
         assert!(env.ledger().sequence() <= p.end_ledger, "voting period ended");
 
+        // ── effects: update all state before any external calls ───────────
         if approve { p.yes_votes += 1; } else { p.no_votes += 1; }
         proposals.set(proposal_id, p);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
 
         // Record vote in bitmap (single persistent write per 128 voters)
         bitmap_set(&env, proposal_id, idx);
+
+        // ── release lock ──────────────────────────────────────────────────
+        env.storage().instance().set(&DataKey::VoteLock, &false);
     }
 
     /// Finalise a proposal after its voting period has ended.
@@ -385,6 +400,22 @@ mod tests {
         client.finalize(&id);
         assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Passed);
         assert_eq!(client.get_proposal(&id).unwrap().yes_votes, 200);
+    }
+
+    /// Verify that a second call to vote() while the lock is held is rejected.
+    /// We simulate reentrancy by manually setting VoteLock before calling vote().
+    #[test]
+    #[should_panic(expected = "reentrant call")]
+    fn test_vote_reentrancy_rejected() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        // Simulate a reentrant state by setting the lock directly in storage.
+        env.as_contract(&client.address, || {
+            env.storage().instance().set(&DataKey::VoteLock, &true);
+        });
+        client.vote(&voter, &id, &true); // must panic with "reentrant call"
     }
 
     /// Benchmark: count persistent ledger writes for 1000 votes.
