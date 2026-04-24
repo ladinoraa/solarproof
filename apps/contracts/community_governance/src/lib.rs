@@ -23,7 +23,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map, String};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,6 +80,19 @@ pub enum DataKey {
     /// Reentrancy lock for vote(). Set to true while vote() is executing.
     VoteLock,
 }
+
+/// Pending contract upgrade proposal.
+#[contracttype]
+#[derive(Clone)]
+pub struct UpgradeProposal {
+    /// SHA-256 hash of the new WASM binary.
+    pub new_wasm_hash: soroban_sdk::BytesN<32>,
+    /// Ledger sequence after which the upgrade may be executed.
+    pub unlock_ledger: u32,
+}
+
+/// 48 hours expressed in ledgers (10-second ledger time).
+const UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280;
 
 /// Cooperative governance contract.
 #[contract]
@@ -282,6 +295,75 @@ impl CommunityGovernance {
         env.events().publish((symbol_short!("final"),), (proposal_id, p.status));
     }
 
+    // ── upgrade mechanism ─────────────────────────────────────────────────────
+
+    /// Propose a contract upgrade. Admin-only.
+    ///
+    /// The upgrade is locked for `UPGRADE_TIMELOCK_LEDGERS` (~48 h) before it
+    /// can be executed, giving the community time to react.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
+    /// * `"upgrade already pending"` if a proposal is already queued.
+    ///
+    /// # Events
+    /// Emits `(topic: "upg_prop", data: (new_wasm_hash, unlock_ledger))`.
+    pub fn propose_upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        if env.storage().instance().has(&DataKey::PendingUpgrade) {
+            panic!("upgrade already pending");
+        }
+        let unlock_ledger = env.ledger().sequence() + UPGRADE_TIMELOCK_LEDGERS;
+        let proposal = UpgradeProposal { new_wasm_hash: new_wasm_hash.clone(), unlock_ledger };
+        env.storage().instance().set(&DataKey::PendingUpgrade, &proposal);
+        env.events().publish((symbol_short!("upg_prop"),), (new_wasm_hash, unlock_ledger));
+    }
+
+    /// Cancel a pending upgrade. Admin-only.
+    ///
+    /// # Panics
+    /// * `"no pending upgrade"` if there is nothing to cancel.
+    ///
+    /// # Events
+    /// Emits `(topic: "upg_cncl", data: ())`.
+    pub fn cancel_upgrade(env: Env) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        if !env.storage().instance().has(&DataKey::PendingUpgrade) {
+            panic!("no pending upgrade");
+        }
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
+        env.events().publish((symbol_short!("upg_cncl"),), ());
+    }
+
+    /// Execute a pending upgrade after the timelock has elapsed. Admin-only.
+    ///
+    /// # Panics
+    /// * `"no pending upgrade"` if no upgrade has been proposed.
+    /// * `"timelock not elapsed"` if the unlock ledger has not been reached.
+    ///
+    /// # Events
+    /// Emits `(topic: "upg_exec", data: new_wasm_hash)`.
+    pub fn execute_upgrade(env: Env) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        let proposal: UpgradeProposal = env.storage().instance()
+            .get(&DataKey::PendingUpgrade)
+            .expect("no pending upgrade");
+        if env.ledger().sequence() < proposal.unlock_ledger {
+            panic!("timelock not elapsed");
+        }
+        env.storage().instance().remove(&DataKey::PendingUpgrade);
+        env.deployer().update_current_contract_wasm(proposal.new_wasm_hash.clone());
+        env.events().publish((symbol_short!("upg_exec"),), proposal.new_wasm_hash);
+    }
+
+    /// Returns the pending upgrade proposal, if any.
+    pub fn pending_upgrade(env: Env) -> Option<UpgradeProposal> {
+        env.storage().instance().get(&DataKey::PendingUpgrade)
+    }
+
     /// Returns the proposal with the given ID, or `None` if it does not exist.
     pub fn get_proposal(env: Env, proposal_id: u32) -> Option<Proposal> {
         let proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
@@ -440,5 +522,51 @@ mod tests {
         assert_eq!(expected_bitmap_words, 8, "bitmap word count");
 
         assert_eq!(client.get_proposal(&pid).unwrap().yes_votes, 1000);
+    }
+
+    // ── upgrade timelock tests ────────────────────────────────────────────────
+
+    fn dummy_hash(env: &Env) -> soroban_sdk::BytesN<32> {
+        soroban_sdk::BytesN::from_array(env, &[0xabu8; 32])
+    }
+
+    #[test]
+    fn test_propose_upgrade_stores_proposal() {
+        let (env, admin, client) = setup();
+        client.propose_upgrade(&admin, &dummy_hash(&env));
+        let pending = client.pending_upgrade().unwrap();
+        assert_eq!(pending.new_wasm_hash, dummy_hash(&env));
+        assert_eq!(pending.unlock_ledger, env.ledger().sequence() + UPGRADE_TIMELOCK_LEDGERS);
+    }
+
+    #[test]
+    #[should_panic(expected = "upgrade already pending")]
+    fn test_propose_upgrade_rejects_duplicate() {
+        let (env, admin, client) = setup();
+        client.propose_upgrade(&admin, &dummy_hash(&env));
+        client.propose_upgrade(&admin, &dummy_hash(&env));
+    }
+
+    #[test]
+    fn test_cancel_upgrade_removes_proposal() {
+        let (env, admin, client) = setup();
+        client.propose_upgrade(&admin, &dummy_hash(&env));
+        client.cancel_upgrade(&admin);
+        assert!(client.pending_upgrade().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "no pending upgrade")]
+    fn test_cancel_upgrade_no_proposal_panics() {
+        let (_env, admin, client) = setup();
+        client.cancel_upgrade(&admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "timelock not elapsed")]
+    fn test_execute_upgrade_before_timelock_panics() {
+        let (env, admin, client) = setup();
+        client.propose_upgrade(&admin, &dummy_hash(&env));
+        client.execute_upgrade(&admin);
     }
 }
