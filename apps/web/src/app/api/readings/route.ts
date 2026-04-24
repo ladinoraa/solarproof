@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verify } from '@noble/ed25519'
+import { verifyAsync } from '@noble/ed25519'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     .select('id, pubkey_hex, cooperative_id, cooperatives(admin_address)')
     .eq('id', meter_id)
     .eq('active', true)
-    .single()
+    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))
 
   // Verify Ed25519 signature
-  const sigValid = await verify(
+  const sigValid = await verifyAsync(
     Buffer.from(signature_hex, 'hex'),
     readingHash,
     Buffer.from(meter.pubkey_hex, 'hex')

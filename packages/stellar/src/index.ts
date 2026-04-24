@@ -1,7 +1,8 @@
 import {
-  Contract, Networks, SorobanRpc, TransactionBuilder,
+  Contract, Networks, TransactionBuilder,
   BASE_FEE, xdr, nativeToScVal, scValToNative, Address,
 } from '@stellar/stellar-sdk'
+import * as SorobanRpc from '@stellar/stellar-sdk/rpc'
 
 export const NETWORKS = {
   testnet: {
