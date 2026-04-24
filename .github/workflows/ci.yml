@@ -12,29 +12,52 @@ concurrency:
 
 jobs:
   web:
-    name: Web (lint + type-check + build)
+    name: Web (lint + type-check + test + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
+
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('apps/web/**.[jt]s', 'apps/web/**.[jt]sx', 'pnpm-lock.yaml') }}
+          restore-keys: nextjs-${{ runner.os }}-
+
+      - name: lint
+        run: pnpm lint
         working-directory: apps/web
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      - run: pnpm type-check
+
+      - name: type-check
+        run: pnpm type-check
         working-directory: apps/web
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      - run: pnpm build
+
+      - name: test
+        run: pnpm test
+        working-directory: apps/web
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: build
+        run: pnpm build
         working-directory: apps/web
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
@@ -45,27 +68,34 @@ jobs:
           NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
           SUPABASE_SERVICE_ROLE_KEY: placeholder
           MINTER_SECRET_KEY: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
   contracts:
     name: Contracts (fmt + clippy + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install Rust toolchain (pinned via rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.85.0"
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/contracts
+
       - name: fmt
         run: cargo fmt --all -- --check
         working-directory: apps/contracts
+
       - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
         working-directory: apps/contracts
+
       - name: test
         run: cargo test --all
         working-directory: apps/contracts
