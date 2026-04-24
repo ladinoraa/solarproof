@@ -3,6 +3,7 @@
 > End-to-end cryptographic proof of renewable energy — from physical meter to on-chain certificate.
 
 [![CI](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AnnabelJoe/solarproof/branch/main/graph/badge.svg)](https://codecov.io/gh/AnnabelJoe/solarproof)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-blue?logo=stellar)](https://stellar.org)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen)](#)
