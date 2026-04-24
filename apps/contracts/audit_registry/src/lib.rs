@@ -36,7 +36,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env};
 
 const VERSION: &str = "1.0.0";
 
@@ -62,6 +62,8 @@ pub struct AuditAnchor {
 pub enum DataKey {
     /// `Address` — the contract administrator.
     Admin,
+    /// `Address` — the only address authorised to call `anchor()`.
+    ApiSigner,
     /// `AuditAnchor` — keyed by the 32-byte reading hash.
     Anchor(BytesN<32>),
     /// `u32` — total number of anchors stored.
@@ -82,15 +84,17 @@ impl AuditRegistry {
     /// Initialise the contract.
     ///
     /// # Arguments
-    /// * `admin` — address that administers the registry.
+    /// * `admin`      — address that administers the registry.
+    /// * `api_signer` — the only address authorised to call `anchor()`.
     ///
     /// # Panics
     /// Panics with `"already initialized"` if called more than once.
-    pub fn initialize(env: Env, admin: soroban_sdk::Address) {
+    pub fn initialize(env: Env, admin: soroban_sdk::Address, api_signer: soroban_sdk::Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::ApiSigner, &api_signer);
         env.storage().instance().set(&DataKey::TotalAnchors, &0_u32);
         env.storage().instance().set(&DataKey::Version, &soroban_sdk::String::from_str(&env, VERSION));
     }
@@ -108,21 +112,42 @@ impl AuditRegistry {
         env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
+    /// Update the authorised API signer address. Admin-only.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
+    pub fn set_api_signer(env: Env, new_signer: soroban_sdk::Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::ApiSigner, &new_signer);
+    }
+
+    /// Returns the current authorised API signer address.
+    pub fn api_signer(env: Env) -> soroban_sdk::Address {
+        env.storage().instance().get(&DataKey::ApiSigner).expect("not initialized")
+    }
+
     /// Anchor a reading hash on-chain.
     ///
-    /// The caller (SolarProof API) is responsible for verifying the Ed25519
-    /// signature off-chain before invoking this function.  Only the hash is
-    /// stored; the full payload lives in Supabase.
+    /// Only the whitelisted `api_signer` address may call this function.
     ///
     /// # Arguments
+    /// * `caller`       — must be the registered `api_signer`.
     /// * `reading_hash` — SHA-256 of `(meter_id || kwh_stroops_le || timestamp_le)`.
     ///
     /// # Panics
+    /// * `"unauthorized"` if `caller` is not the registered `api_signer`.
     /// * `"reading already anchored"` if `reading_hash` has been anchored before.
     ///
     /// # Events
     /// Emits `(topic: "anchor", data: reading_hash)`.
-    pub fn anchor(env: Env, reading_hash: BytesN<32>) {
+    pub fn anchor(env: Env, caller: soroban_sdk::Address, reading_hash: BytesN<32>) {
+        caller.require_auth();
+        let api_signer: Address = env.storage().instance().get(&DataKey::ApiSigner).expect("not initialized");
+        if caller != api_signer {
+            panic!("unauthorized");
+        }
+
         let key = DataKey::Anchor(reading_hash.clone());
         if env.storage().persistent().has(&key) {
             panic!("reading already anchored");
@@ -171,14 +196,15 @@ mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Env};
 
-    fn setup() -> (Env, AuditRegistryClient<'static>) {
+    fn setup() -> (Env, soroban_sdk::Address, AuditRegistryClient<'static>) {
         let env = Env::default();
         env.mock_all_auths();
         let id = env.register(AuditRegistry, ());
         let client = AuditRegistryClient::new(&env, &id);
         let admin = soroban_sdk::Address::generate(&env);
-        client.initialize(&admin);
-        (env, client)
+        let api_signer = soroban_sdk::Address::generate(&env);
+        client.initialize(&admin, &api_signer);
+        (env, api_signer, client)
     }
 
     fn hash(env: &Env) -> BytesN<32> {
@@ -187,9 +213,9 @@ mod tests {
 
     #[test]
     fn test_anchor_and_verify() {
-        let (env, client) = setup();
+        let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&h);
+        client.anchor(&api_signer, &h);
         assert!(client.is_anchored(&h));
         assert_eq!(client.total_anchors(), 1);
         let anchor = client.verify(&h).unwrap();
@@ -197,43 +223,62 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "unauthorized")]
+    fn test_unauthorized_caller_rejected() {
+        let (env, _api_signer, client) = setup();
+        let attacker = soroban_sdk::Address::generate(&env);
+        client.anchor(&attacker, &hash(&env));
+    }
+
+    #[test]
     #[should_panic(expected = "reading already anchored")]
     fn test_duplicate_anchor_rejected() {
-        let (env, client) = setup();
+        let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&h);
-        client.anchor(&h);
+        client.anchor(&api_signer, &h);
+        client.anchor(&api_signer, &h);
     }
 
     #[test]
     fn test_not_anchored_returns_none() {
-        let (env, client) = setup();
+        let (env, _api_signer, client) = setup();
         let h = BytesN::from_array(&env, &[9u8; 32]);
         assert!(!client.is_anchored(&h));
         assert!(client.verify(&h).is_none());
     }
 
-    /// Verify total_anchors increments correctly across multiple anchors.
     #[test]
     fn test_total_anchors_increments() {
-        let (env, client) = setup();
+        let (env, api_signer, client) = setup();
         for i in 0u8..5 {
-            client.anchor(&BytesN::from_array(&env, &[i; 32]));
+            client.anchor(&api_signer, &BytesN::from_array(&env, &[i; 32]));
         }
         assert_eq!(client.total_anchors(), 5);
     }
 
-    /// Verify double-initialize is rejected.
     #[test]
     #[should_panic(expected = "already initialized")]
     fn test_double_initialize_rejected() {
-        let (env, client) = setup();
-        client.initialize(&soroban_sdk::Address::generate(&env));
+        let (env, _api_signer, client) = setup();
+        let admin2 = soroban_sdk::Address::generate(&env);
+        let signer2 = soroban_sdk::Address::generate(&env);
+        client.initialize(&admin2, &signer2);
+    }
+
+    #[test]
+    fn test_set_api_signer_updates_authorized_caller() {
+        let (env, _old_signer, client) = setup();
+        let new_signer = soroban_sdk::Address::generate(&env);
+        // admin is mock_all_auths so set_api_signer passes
+        client.set_api_signer(&new_signer);
+        let h = hash(&env);
+        client.anchor(&new_signer, &h);
+        assert!(client.is_anchored(&h));
     }
 
     #[test]
     fn test_version() {
-        let (env, client) = setup();
+        let (env, _api_signer, client) = setup();
         assert_eq!(client.get_version(), soroban_sdk::String::from_str(&env, "1.0.0"));
     }
 }
