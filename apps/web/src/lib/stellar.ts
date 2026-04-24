@@ -1,6 +1,7 @@
 import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract } from '@stellar/stellar-sdk'
 import { SorobanRpc } from '@stellar/stellar-sdk'
 import { kwhToStroops, amountToScVal, addressToScVal, bytesToScVal } from '@solarproof/stellar'
+import { getMinterKeypair } from './secrets'
 
 const NETWORK_PASSPHRASE = Networks.TESTNET
 const RPC_URL = 'https://soroban-testnet.stellar.org'
@@ -30,7 +31,7 @@ async function submitTx(tx: ReturnType<typeof TransactionBuilder.prototype.build
 export async function anchorReading(params: {
   readingHash: Buffer
 }): Promise<string> {
-  const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
+  const minter = await getMinterKeypair()
   const server = getServer()
   const account = await server.getAccount(minter.publicKey())
   const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
@@ -45,7 +46,7 @@ export async function anchorReading(params: {
 
 /** Retire energy certificates on-chain (burns tokens, emits retire event). */
 export async function retireCertificate(ownerAddress: string, kwh: number): Promise<string> {
-  const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)
+  const minter = await getMinterKeypair()
   const server = getServer()
   const account = await server.getAccount(minter.publicKey())
   const contract = new Contract(process.env.NEXT_PUBLIC_ENERGY_TOKEN_ID!)
@@ -60,7 +61,7 @@ export async function retireCertificate(ownerAddress: string, kwh: number): Prom
 
 /** Mint energy certificates after a successful anchor. */
 export async function mintCertificates(recipientAddress: string, kwh: number): Promise<string> {
-  const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
+  const minter = await getMinterKeypair()
   const server = getServer()
   const account = await server.getAccount(minter.publicKey())
   const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
