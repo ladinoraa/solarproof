@@ -16,6 +16,7 @@ import {
 import { useTheme } from 'next-themes'
 import { Zap, Award, Leaf, TrendingUp } from 'lucide-react'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,7 +142,7 @@ export default function DashboardPage() {
         <h2 id="stats-heading" className="sr-only">
           Key statistics
         </h2>
-
+        <ErrorBoundary inline>
         {statsError && (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
             Failed to load statistics.
@@ -185,6 +186,7 @@ export default function DashboardPage() {
             </>
           ) : null}
         </div>
+        </ErrorBoundary>
       </section>
 
       {/* ------------------------------------------------------------------ */}
@@ -194,7 +196,7 @@ export default function DashboardPage() {
         <h2 id="charts-heading" className="sr-only">
           Energy charts
         </h2>
-
+        <ErrorBoundary inline>
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Area chart — daily kWh */}
           {readingsLoading ? (
@@ -311,6 +313,7 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        </ErrorBoundary>
       </section>
 
       {/* ------------------------------------------------------------------ */}
@@ -323,6 +326,7 @@ export default function DashboardPage() {
         >
           Recent readings
         </h2>
+        <ErrorBoundary inline>
 
         {readingsError && (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -417,6 +421,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
+        </ErrorBoundary>
       </section>
     </div>
   )
