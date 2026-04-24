@@ -7,6 +7,21 @@ import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
 
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  try {
+    return JSON.stringify(err)
+  } catch {
+    return 'Unknown error'
+  }
+}
+
+function isAlreadyAnchoredError(err: unknown): boolean {
+  const message = extractErrorMessage(err).toLowerCase()
+  return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
+}
+
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
@@ -84,7 +99,10 @@ export async function POST(req: NextRequest) {
     anchorTxHash = await anchorReading({ readingHash })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Anchor failed'
+    if (isAlreadyAnchoredError(err)) {
+      return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
+    }
+    const message = extractErrorMessage(err)
     return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
   }
 

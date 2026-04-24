@@ -36,7 +36,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, BytesN, Env};
 
 const VERSION: &str = "1.0.0";
 
@@ -69,6 +69,13 @@ pub enum DataKey {
     /// `u32` — total number of anchors stored.
     TotalAnchors,
     Version,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Error {
+    Unauthorized = 1,
+    AlreadyAnchored = 2,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,16 +148,16 @@ impl AuditRegistry {
     ///
     /// # Events
     /// Emits `(topic: "anchor", data: reading_hash)`.
-    pub fn anchor(env: Env, caller: soroban_sdk::Address, reading_hash: BytesN<32>) {
+    pub fn anchor(env: Env, caller: soroban_sdk::Address, reading_hash: BytesN<32>) -> Result<(), Error> {
         caller.require_auth();
         let api_signer: Address = env.storage().instance().get(&DataKey::ApiSigner).expect("not initialized");
         if caller != api_signer {
-            panic!("unauthorized");
+            return Err(Error::Unauthorized);
         }
 
         let key = DataKey::Anchor(reading_hash.clone());
         if env.storage().persistent().has(&key) {
-            panic!("reading already anchored");
+            return Err(Error::AlreadyAnchored);
         }
 
         let anchor = AuditAnchor {
@@ -164,6 +171,7 @@ impl AuditRegistry {
         env.storage().instance().set(&DataKey::TotalAnchors, &(count + 1));
 
         env.events().publish((symbol_short!("anchor"),), reading_hash);
+        Ok(())
     }
 
     /// Returns the `AuditAnchor` for `reading_hash`, or `None` if not anchored.
@@ -215,7 +223,7 @@ mod tests {
     fn test_anchor_and_verify() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h);
+        client.anchor(&api_signer, &h).unwrap();
         assert!(client.is_anchored(&h));
         assert_eq!(client.total_anchors(), 1);
         let anchor = client.verify(&h).unwrap();
@@ -223,20 +231,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unauthorized")]
     fn test_unauthorized_caller_rejected() {
         let (env, _api_signer, client) = setup();
         let attacker = soroban_sdk::Address::generate(&env);
-        client.anchor(&attacker, &hash(&env));
+        assert_eq!(client.anchor(&attacker, &hash(&env)), Err(Error::Unauthorized));
     }
 
     #[test]
-    #[should_panic(expected = "reading already anchored")]
     fn test_duplicate_anchor_rejected() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h);
-        client.anchor(&api_signer, &h);
+        client.anchor(&api_signer, &h).unwrap();
+        assert_eq!(client.anchor(&api_signer, &h), Err(Error::AlreadyAnchored));
     }
 
     #[test]
