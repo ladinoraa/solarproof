@@ -1,0 +1,380 @@
+openapi: 3.1.0
+info:
+  title: SolarProof API
+  version: 1.0.0
+  description: |
+    End-to-end cryptographic proof of renewable energy — from physical meter to on-chain certificate.
+
+    All responses are JSON. Timestamps are ISO 8601 strings unless noted.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://solarproof.vercel.app
+    description: Production
+
+security: []
+
+paths:
+  /api/readings:
+    post:
+      operationId: submitReading
+      summary: Submit a signed meter reading
+      description: |
+        Verifies the Ed25519 signature, anchors the reading hash on Stellar,
+        and mints energy certificates (1 token = 1 kWh).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingRequest'
+            example:
+              meter_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+              kwh: 12.5
+              timestamp: 1745366400
+              signature_hex: "4b3e9f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f09a"
+      responses:
+        '201':
+          description: Reading accepted, anchored, and certificates minted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Ed25519 signature invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Invalid meter signature
+        '404':
+          description: Meter not registered or inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Meter not found or inactive
+        '409':
+          description: Reading already anchored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Anchor or mint failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadingError'
+
+  /api/verify:
+    get:
+      operationId: verifyCertificate
+      summary: Retrieve chain of custody for a certificate
+      description: |
+        Public endpoint — no authentication required.
+        Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash.
+        Results are cached for 60 seconds.
+      security: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Certificate UUID, reading hash (64-char hex), or mint transaction hash
+          schema:
+            type: string
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+      responses:
+        '200':
+          description: Certificate found — full chain of custody returned
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: public, max-age=60, stale-while-revalidate=30
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainOfCustody'
+        '400':
+          description: Missing or invalid id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: No certificate matches the given id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Certificate not found
+
+  /api/certificates/{id}/retire:
+    post:
+      operationId: retireCertificate
+      summary: Retire a certificate
+      description: |
+        Permanently retires a certificate by calling the energy_token contract retire function.
+        A retired certificate cannot be used again.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Certificate UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetireRequest'
+      responses:
+        '200':
+          description: Certificate retired successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetireResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Certificate not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Certificate already retired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Certificate already retired
+        '500':
+          description: Retire transaction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/health:
+    get:
+      operationId: healthCheck
+      summary: Liveness check
+      description: Returns 200 when the service is running. Used by uptime monitoring.
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                ts: 1745366400000
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    ReadingRequest:
+      type: object
+      required: [meter_id, kwh, timestamp, signature_hex]
+      properties:
+        meter_id:
+          type: string
+          format: uuid
+          description: Registered meter identifier
+        kwh:
+          type: number
+          exclusiveMinimum: 0
+          description: Energy generated in kilowatt-hours
+        timestamp:
+          type: integer
+          description: Unix timestamp in seconds (integer)
+        signature_hex:
+          type: string
+          minLength: 128
+          maxLength: 128
+          description: Ed25519 signature of the canonical reading hash, hex-encoded (64 bytes)
+
+    ReadingResponse:
+      type: object
+      required: [reading_id, anchor_tx_hash, mint_tx_hash]
+      properties:
+        reading_id:
+          type: string
+          format: uuid
+        anchor_tx_hash:
+          type: string
+          description: Stellar transaction hash for the on-chain anchor
+        mint_tx_hash:
+          type: string
+          description: Stellar transaction hash for the certificate mint
+
+    ReadingError:
+      type: object
+      required: [error, reading_id]
+      properties:
+        error:
+          type: string
+        reading_id:
+          type: string
+          format: uuid
+        anchor_tx_hash:
+          type: string
+          description: Present if anchoring succeeded but minting failed
+
+    ChainOfCustody:
+      type: object
+      required: [certificate, on_chain]
+      properties:
+        certificate:
+          type: object
+          required: [id, kwh, issued_at, retired]
+          properties:
+            id:
+              type: string
+              format: uuid
+            kwh:
+              type: number
+            issued_at:
+              type: string
+              format: date-time
+            retired:
+              type: boolean
+            retired_at:
+              type: ['string', 'null']
+              format: date-time
+            retired_by:
+              type: ['string', 'null']
+              description: Stellar wallet address that retired the certificate
+        on_chain:
+          type: object
+          required: [anchor_tx, anchor_explorer, mint_tx, mint_explorer]
+          properties:
+            anchor_tx:
+              type: string
+            anchor_explorer:
+              type: string
+              format: uri
+            mint_tx:
+              type: string
+            mint_explorer:
+              type: string
+              format: uri
+        meter_proof:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [meter_id, reading_hash, signature_hex, kwh, timestamp, verified]
+              properties:
+                meter_id:
+                  type: string
+                  format: uuid
+                reading_hash:
+                  type: string
+                  description: Hex-encoded SHA-256 hash of the canonical reading
+                signature_hex:
+                  type: string
+                  description: Ed25519 signature hex (128 chars)
+                kwh:
+                  type: number
+                timestamp:
+                  type: string
+                  format: date-time
+                verified:
+                  type: boolean
+
+    RetireRequest:
+      type: object
+      required: [wallet_address]
+      properties:
+        wallet_address:
+          type: string
+          description: Stellar wallet address of the certificate holder
+
+    RetireResponse:
+      type: object
+      required: [id, retired, retired_at, retired_by, retire_tx_hash]
+      properties:
+        id:
+          type: string
+          format: uuid
+        retired:
+          type: boolean
+        retired_at:
+          type: string
+          format: date-time
+        retired_by:
+          type: string
+        retire_tx_hash:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status, ts]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        ts:
+          type: integer
+          description: Current Unix timestamp in milliseconds
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ValidationError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                fieldErrors:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
+                formErrors:
+                  type: array
+                  items:
+                    type: string
