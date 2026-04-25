@@ -33,6 +33,8 @@ pub enum DataKey {
     Paused,
     /// Allowance: (from, spender) -> i128
     Allowance(Address, Address),
+    /// Retired: address -> bool
+    Retired(Address),
 }
 
 #[contract]
@@ -108,6 +110,7 @@ impl EnergyToken {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
         Self::require_not_paused(&env);
+        Self::require_not_retired(&env, &from);
         Self::move_balance(&env, &from, &to, amount);
         env.events()
             .publish((symbol_short!("transfer"),), (from, to, amount));
@@ -174,6 +177,7 @@ impl EnergyToken {
         spender.require_auth();
         assert!(amount > 0, "amount must be positive");
         Self::require_not_paused(&env);
+        Self::require_not_retired(&env, &from);
         Self::spend_allowance(&env, &from, &spender, amount);
         Self::move_balance(&env, &from, &to, amount);
         env.events()
@@ -337,6 +341,15 @@ impl EnergyToken {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         assert!(!paused, "contract is paused");
+    }
+
+    fn require_not_retired(env: &Env, account: &Address) {
+        let retired: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Retired(account.clone()))
+            .unwrap_or(false);
+        assert!(!retired, "token is retired");
     }
 
     fn move_balance(env: &Env, from: &Address, to: &Address, amount: i128) {
@@ -735,5 +748,50 @@ mod tests {
         let minter = Address::generate(&env);
         client.initialize(&admin, &minter);
         assert_eq!(client.admin(), admin);
+    }
+
+    // ── retire tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_retire_burns_balance_and_updates_supply() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &String::from_str(&env, "REC compliance"));
+        assert_eq!(client.balance(&user), 0);
+        assert_eq!(client.total_supply(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "already retired")]
+    fn test_retire_double_retire_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &500_i128);
+        client.retire(&user, &String::from_str(&env, "first"));
+        // mint again so balance > 0, but retired flag is set
+        client.mint(&user, &100_i128);
+        client.retire(&user, &String::from_str(&env, "second"));
+    }
+
+    #[test]
+    #[should_panic(expected = "token is retired")]
+    fn test_transfer_from_retired_address_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &String::from_str(&env, "REC compliance"));
+        // mint again so balance > 0, but retired flag blocks transfer
+        client.mint(&user, &100_i128);
+        client.transfer(&user, &recipient, &100_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "no balance to retire")]
+    fn test_retire_zero_balance_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.retire(&user, &String::from_str(&env, "empty"));
     }
 }
