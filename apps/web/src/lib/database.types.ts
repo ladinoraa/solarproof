@@ -36,6 +36,15 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['certificates']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['certificates']['Insert']>
       }
+      audit_log: {
+        Row: {
+          id: string; operator_id: string; action: string
+          resource_id: string | null; ip_address: string | null
+          metadata: Record<string, unknown> | null; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['audit_log']['Row'], 'id' | 'created_at'>
+        Update: never
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>

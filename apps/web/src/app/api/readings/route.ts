@@ -6,6 +6,7 @@ import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
+import { auditLog } from '@/lib/audit'
 
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -127,6 +128,13 @@ export async function POST(req: NextRequest) {
 
     // Invalidate any stale cache entries for this certificate
     await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
+
+    await auditLog(req, {
+      operator_id: meter_id,
+      action: 'reading.create',
+      resource_id: reading.id,
+      metadata: { kwh, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash },
+    })
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
