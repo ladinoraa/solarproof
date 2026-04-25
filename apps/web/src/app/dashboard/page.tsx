@@ -198,6 +198,7 @@ export default function DashboardPage() {
             </>
           ) : null}
         </div>
+        </ErrorBoundary>
       </section>
 
       {/* Charts */}
@@ -312,6 +313,7 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        </ErrorBoundary>
       </section>
 
       {/* Recent readings table */}
@@ -363,6 +365,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
+        </ErrorBoundary>
       </section>
     </div>
   )

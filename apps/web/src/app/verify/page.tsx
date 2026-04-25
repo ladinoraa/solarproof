@@ -254,7 +254,7 @@ function Row({
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`${label}: ${value} (opens in new tab)`}
-            className={`flex items-center gap-1 break-all text-blue-600 hover:underline dark:text-blue-400 ${
+            className={`flex items-center gap-1 break-all text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 rounded dark:text-blue-400 dark:focus:ring-yellow-500 dark:focus:ring-offset-gray-900 ${
               mono ? 'font-mono text-xs' : ''
             }`}
           >
