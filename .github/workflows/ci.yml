@@ -69,3 +69,27 @@ jobs:
       - name: test
         run: cargo test --all
         working-directory: apps/contracts
+
+  fuzz:
+    name: Fuzz (time-limited, corpus only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly (required by cargo-fuzz)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts/fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: fuzz_mint (30 s)
+        run: cargo fuzz run fuzz_mint -- -max_total_time=30 corpus/fuzz_mint
+        working-directory: apps/contracts/fuzz
+      - name: fuzz_anchor (30 s)
+        run: cargo fuzz run fuzz_anchor -- -max_total_time=30 corpus/fuzz_anchor
+        working-directory: apps/contracts/fuzz
+      - name: fuzz_vote (30 s)
+        run: cargo fuzz run fuzz_vote -- -max_total_time=30 corpus/fuzz_vote
+        working-directory: apps/contracts/fuzz

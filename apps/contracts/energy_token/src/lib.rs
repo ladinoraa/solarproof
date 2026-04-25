@@ -33,6 +33,8 @@ pub enum DataKey {
     Paused,
     /// Allowance: (from, spender) -> i128
     Allowance(Address, Address),
+    /// Retired: address -> bool
+    Retired(Address),
 }
 
 #[contract]
@@ -40,7 +42,14 @@ pub struct EnergyToken;
 
 #[contractimpl]
 impl EnergyToken {
-    /// Initialise the contract.
+    /// Initialise the contract. Must be called exactly once after deployment.
+    ///
+    /// # Arguments
+    /// * `admin`  — address that can rotate the `minter` via [`set_minter`].
+    /// * `minter` — the only address authorised to call [`mint`].
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if called more than once.
     pub fn initialize(env: Env, admin: Address, minter: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -54,20 +63,24 @@ impl EnergyToken {
 
     // ── SEP-41 metadata ─────────────────────────────────────────────────────
 
+    /// Returns the human-readable token name: `"SolarProof kWh"`.
     pub fn name(env: Env) -> String {
         String::from_str(&env, "SolarProof kWh")
     }
 
+    /// Returns the token ticker symbol: `"SKWH"`.
     pub fn symbol(env: Env) -> String {
         String::from_str(&env, "SKWH")
     }
 
+    /// Returns the number of decimal places: `7` (matching Stellar's stroop precision).
     pub fn decimals(_env: Env) -> u32 {
         7
     }
 
     // ── SEP-41 balance / transfer ────────────────────────────────────────────
 
+    /// Returns the token balance of `account`. Returns `0` for unknown accounts.
     pub fn balance(env: Env, account: Address) -> i128 {
         env.storage()
             .persistent()
@@ -75,10 +88,29 @@ impl EnergyToken {
             .unwrap_or(0)
     }
 
+    /// Transfer `amount` tokens from `from` to `to`.
+    ///
+    /// # Arguments
+    /// * `from`   — sender (must authorise).
+    /// * `to`     — recipient.
+    /// * `amount` — number of tokens to transfer (must be positive).
+    ///
+    /// # Authorization
+    /// Requires `from` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"contract is paused"` if the contract is paused.
+    /// * `"token is retired"` if `from` has been retired.
+    /// * `"insufficient balance"` if `from` has fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "transfer", data: (from, to, amount))`.
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
         Self::require_not_paused(&env);
+        Self::require_not_retired(&env, &from);
         Self::move_balance(&env, &from, &to, amount);
         env.events()
             .publish((symbol_short!("transfer"),), (from, to, amount));
@@ -87,6 +119,7 @@ impl EnergyToken {
     // ── SEP-41 allowance / approve ───────────────────────────────────────────
 
     /// Returns the amount `spender` is allowed to spend on behalf of `from`.
+    /// Returns `0` if no allowance has been set.
     pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
         env.storage()
             .persistent()
@@ -95,9 +128,21 @@ impl EnergyToken {
     }
 
     /// Approve `spender` to spend up to `amount` tokens from `from`.
+    /// Setting `amount` to `0` revokes the allowance.
+    ///
+    /// # Arguments
+    /// * `from`    — token owner (must authorise).
+    /// * `spender` — address being granted the allowance.
+    /// * `amount`  — maximum tokens `spender` may spend (must be ≥ 0).
     ///
     /// # Authorization
     /// Requires `from` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be non-negative"` if `amount < 0`.
+    ///
+    /// # Events
+    /// Emits `(topic: "approve", data: (from, spender, amount))`.
     pub fn approve(env: Env, from: Address, spender: Address, amount: i128) {
         from.require_auth();
         assert!(amount >= 0, "amount must be non-negative");
@@ -110,12 +155,29 @@ impl EnergyToken {
 
     /// Transfer `amount` tokens from `from` to `to` using caller's allowance.
     ///
+    /// # Arguments
+    /// * `spender` — address spending the allowance (must authorise).
+    /// * `from`    — token owner whose allowance is consumed.
+    /// * `to`      — recipient.
+    /// * `amount`  — number of tokens to transfer (must be positive).
+    ///
     /// # Authorization
     /// Requires `spender` (caller) authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"contract is paused"` if the contract is paused.
+    /// * `"token is retired"` if `from` has been retired.
+    /// * `"insufficient allowance"` if `spender`'s allowance is less than `amount`.
+    /// * `"insufficient balance"` if `from` has fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "transfer", data: (from, to, amount))`.
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
         spender.require_auth();
         assert!(amount > 0, "amount must be positive");
         Self::require_not_paused(&env);
+        Self::require_not_retired(&env, &from);
         Self::spend_allowance(&env, &from, &spender, amount);
         Self::move_balance(&env, &from, &to, amount);
         env.events()
@@ -124,8 +186,22 @@ impl EnergyToken {
 
     /// Burn `amount` tokens from `from` using caller's allowance.
     ///
+    /// # Arguments
+    /// * `spender` — address spending the allowance (must authorise).
+    /// * `from`    — token owner whose tokens are burned.
+    /// * `amount`  — number of tokens to burn (must be positive).
+    ///
     /// # Authorization
     /// Requires `spender` (caller) authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"contract is paused"` if the contract is paused.
+    /// * `"insufficient allowance"` if `spender`'s allowance is less than `amount`.
+    /// * `"insufficient balance"` if `from` has fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "burn", data: (from, amount))`.
     pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -139,6 +215,24 @@ impl EnergyToken {
 
     // ── Mint / burn (privileged) ─────────────────────────────────────────────
 
+    /// Mint `amount` new tokens to `to`. Only the registered `minter` may call this.
+    ///
+    /// # Arguments
+    /// * `to`     — recipient address.
+    /// * `amount` — number of tokens to mint (must be positive).
+    ///
+    /// # Authorization
+    /// Requires `minter` authorisation.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"contract is paused"` if the contract is paused.
+    /// * `"overflow: balance"` if minting would overflow `to`'s balance.
+    /// * `"overflow: total_minted"` if minting would overflow the total supply counter.
+    ///
+    /// # Events
+    /// Emits `(topic: "mint", data: (to, amount))`.
     pub fn mint(env: Env, to: Address, amount: i128) {
         let minter: Address = env
             .storage()
@@ -167,6 +261,22 @@ impl EnergyToken {
         env.events().publish((symbol_short!("mint"),), (to, amount));
     }
 
+    /// Burn `amount` tokens from `from`. The token holder calls this directly.
+    ///
+    /// # Arguments
+    /// * `from`   — address whose tokens are burned (must authorise).
+    /// * `amount` — number of tokens to burn (must be positive).
+    ///
+    /// # Authorization
+    /// Requires `from` authorisation.
+    ///
+    /// # Panics
+    /// * `"amount must be positive"` if `amount <= 0`.
+    /// * `"contract is paused"` if the contract is paused.
+    /// * `"insufficient balance"` if `from` has fewer tokens than `amount`.
+    ///
+    /// # Events
+    /// Emits `(topic: "burn", data: (from, amount))`.
     pub fn burn(env: Env, from: Address, amount: i128) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -176,22 +286,7 @@ impl EnergyToken {
         env.events().publish((symbol_short!("burn"),), (from, amount));
     }
 
-    /// Retire (permanently burn) certificates, emitting a `retire` event.
-    ///
-    /// Semantically identical to `burn` but emits a distinct `retire` event
-    /// so indexers can distinguish voluntary retirement from generic burns.
-    ///
-    /// # Authorization
-    /// Requires `from` authorisation.
-    pub fn retire(env: Env, from: Address, amount: i128) {
-        from.require_auth();
-        assert!(amount > 0, "amount must be positive");
-        Self::require_not_paused(&env);
-        Self::deduct_balance(&env, &from, amount);
-        Self::add_burned(&env, amount);
-        env.events().publish((symbol_short!("retire"),), (from, amount));
-    }
-
+    /// Returns the current circulating supply: `total_minted - total_burned`.
     pub fn total_supply(env: Env) -> i128 {
         let minted: i128 = env
             .storage()
@@ -206,6 +301,16 @@ impl EnergyToken {
         minted - burned
     }
 
+    /// Replace the authorised minter address. Admin-only.
+    ///
+    /// # Arguments
+    /// * `new_minter` — address that will be authorised to call [`mint`].
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn set_minter(env: Env, new_minter: Address) {
         let admin: Address = env
             .storage()
@@ -216,6 +321,10 @@ impl EnergyToken {
         env.storage().instance().set(&DataKey::Minter, &new_minter);
     }
 
+    /// Returns the admin address.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn admin(env: Env) -> Address {
         env.storage()
             .instance()
@@ -232,6 +341,15 @@ impl EnergyToken {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         assert!(!paused, "contract is paused");
+    }
+
+    fn require_not_retired(env: &Env, account: &Address) {
+        let retired: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Retired(account.clone()))
+            .unwrap_or(false);
+        assert!(!retired, "token is retired");
     }
 
     fn move_balance(env: &Env, from: &Address, to: &Address, amount: i128) {
@@ -651,5 +769,50 @@ mod tests {
         let minter = Address::generate(&env);
         client.initialize(&admin, &minter);
         assert_eq!(client.admin(), admin);
+    }
+
+    // ── retire tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_retire_burns_balance_and_updates_supply() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &String::from_str(&env, "REC compliance"));
+        assert_eq!(client.balance(&user), 0);
+        assert_eq!(client.total_supply(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "already retired")]
+    fn test_retire_double_retire_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &500_i128);
+        client.retire(&user, &String::from_str(&env, "first"));
+        // mint again so balance > 0, but retired flag is set
+        client.mint(&user, &100_i128);
+        client.retire(&user, &String::from_str(&env, "second"));
+    }
+
+    #[test]
+    #[should_panic(expected = "token is retired")]
+    fn test_transfer_from_retired_address_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &String::from_str(&env, "REC compliance"));
+        // mint again so balance > 0, but retired flag blocks transfer
+        client.mint(&user, &100_i128);
+        client.transfer(&user, &recipient, &100_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "no balance to retire")]
+    fn test_retire_zero_balance_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.retire(&user, &String::from_str(&env, "empty"));
     }
 }

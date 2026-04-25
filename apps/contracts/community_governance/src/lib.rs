@@ -154,16 +154,15 @@ fn bitmap_set(env: &Env, proposal_id: u32, idx: u32) {
 
 #[contractimpl]
 impl CommunityGovernance {
-    /// Initialise the contract.
+    /// Initialise the contract. Must be called exactly once after deployment.
     ///
     /// # Arguments
     /// * `admin`                 — administrator address.
-    /// * `quorum`                — minimum yes-vote percentage to pass (1–100).
+    /// * `quorum`                — minimum yes-vote percentage required to pass (1–100).
     /// * `voting_period_ledgers` — number of ledgers each proposal stays open.
     ///
     /// # Panics
     /// * `"already initialized"` if called more than once.
-    /// * `"quorum must be 1-100"` if `quorum` is out of range.
     pub fn initialize(env: Env, admin: Address, quorum: u32, voting_period_ledgers: u32) {
         if env.storage().instance().has(&DataKey::Admin) { panic!("already initialized"); }
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -177,6 +176,7 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::Version, &String::from_str(&env, VERSION));
     }
 
+    /// Returns the contract version string (e.g. `"1.0.0"`).
     pub fn get_version(env: Env) -> String {
         env.storage().instance()
             .get(&DataKey::Version)
@@ -184,6 +184,15 @@ impl CommunityGovernance {
     }
 
     /// Migrate state schema to a new version. Admin-only.
+    ///
+    /// # Arguments
+    /// * `new_version` — version string to store (e.g. `"2.0.0"`).
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn migrate(env: Env, new_version: String) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
