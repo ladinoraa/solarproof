@@ -1,102 +1,96 @@
-import Link from 'next/link'
-import type { Metadata } from 'next'
-import { Award, ExternalLink, FlameKindling } from 'lucide-react'
-import { createServiceClient } from '@/lib/supabase'
-import type { Database } from '@/lib/database.types'
-import { PageSizeSelect } from './page-size-select'
+'use client'
 
-export const metadata: Metadata = {
-  title: 'Certificates — SolarProof',
-  description: 'Browse all issued renewable energy certificates.',
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Award, Leaf } from 'lucide-react'
+import { RetireModal } from '@/components/retire-modal'
+import { useToast } from '@/components/toast'
+import { useWallet } from '@/hooks/useWallet'
+
+interface Certificate {
+  id: string
+  kwh: number
+  minted_at: string
+  retired: boolean
+  retired_at: string | null
+  retired_by: string | null
+  tx_hash: string | null
 }
 
-type CertRow = Pick<
-  Database['public']['Tables']['certificates']['Row'],
-  'id' | 'kwh' | 'issued_at' | 'retired' | 'retired_at' | 'cooperative_id' | 'mint_tx_hash'
->
+async function fetchCertificates(): Promise<Certificate[]> {
+  const res = await fetch('/api/certificates')
+  if (!res.ok) throw new Error('Failed to load certificates')
+  return res.json()
+}
 
-const PAGE_SIZES = [10, 25, 50] as const
-const DEFAULT_LIMIT = 25
+export default function CertificatesPage() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['certificates'],
+    queryFn: fetchCertificates,
+  })
+  const qc = useQueryClient()
+  const { toast, dismiss } = useToast()
+  const { address, connected, connect } = useWallet()
+  const [retiring, setRetiring] = useState<Certificate | null>(null)
 
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-async function getCertificates(cursor: string | null, limit: number) {
-  const db = createServiceClient()
-
-  let query = db
-    .from('certificates')
-    .select('id, kwh, issued_at, retired, retired_at, cooperative_id, mint_tx_hash')
-    .order('issued_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(limit + 1) // fetch one extra to know if there's a next page
-
-  if (cursor) {
-    // cursor = base64(JSON({ issued_at, id }))
+  async function handleRetire(reason: string) {
+    if (!retiring) return
+    const pendingId = toast('pending', 'Submitting retirement transaction…')
     try {
-      const { issued_at, id } = JSON.parse(atob(cursor)) as { issued_at: string; id: string }
-      query = query.or(`issued_at.lt.${issued_at},and(issued_at.eq.${issued_at},id.lt.${id})`)
-    } catch {
-      // invalid cursor — ignore and start from beginning
+      const res = await fetch(`/api/certificates/${retiring.id}/retire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: address, reason }),
+      })
+      dismiss(pendingId)
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Unknown error' }))
+        toast('error', msg ?? 'Retirement failed')
+        return
+      }
+      toast('success', 'Certificate retired successfully')
+      setRetiring(null)
+      qc.invalidateQueries({ queryKey: ['certificates'] })
+    } catch (err) {
+      dismiss(pendingId)
+      toast('error', err instanceof Error ? err.message : 'Retirement failed')
     }
   }
 
-  const { data, error } = await query
-  if (error || !data) return { rows: [] as CertRow[], nextCursor: null }
-
-  const hasNext = data.length > limit
-  const rows = hasNext ? data.slice(0, limit) : data
-
-  let nextCursor: string | null = null
-  if (hasNext) {
-    const last = rows[rows.length - 1]
-    nextCursor = btoa(JSON.stringify({ issued_at: last.issued_at, id: last.id }))
-  }
-
-  return { rows, nextCursor }
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-export default async function CertificatesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ cursor?: string; limit?: string }>
-}) {
-  const { cursor, limit: limitParam } = await searchParams
-  const limit = PAGE_SIZES.includes(Number(limitParam) as typeof PAGE_SIZES[number])
-    ? Number(limitParam)
-    : DEFAULT_LIMIT
-
-  const { rows, nextCursor } = await getCertificates(cursor ?? null, limit)
-
-  // Build prev cursor from URL (we store it as a query param when navigating forward)
-  const hasPrev = Boolean(cursor)
-
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:py-10">
-      {/* Header */}
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Award className="h-6 w-6 shrink-0 text-yellow-500" aria-hidden="true" />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">
-            Certificates
-          </h1>
-        </div>
-        <PageSizeSelect current={limit} />
-      </header>
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Certificates</h1>
 
-      {/* Table */}
+      {!connected && (
+        <div className="mb-6 flex items-center justify-between rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 dark:border-yellow-800 dark:bg-yellow-950">
+          <p className="text-sm text-yellow-800 dark:text-yellow-200">
+            Connect your wallet to retire certificates.
+          </p>
+          <button
+            onClick={() => connect().catch(() => {})}
+            className="rounded-md bg-yellow-400 px-3 py-1.5 text-xs font-medium text-gray-900 hover:bg-yellow-500"
+          >
+            Connect wallet
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+          Failed to load certificates.
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
         <div className="overflow-x-auto">
           <table
             className="min-w-full divide-y divide-gray-200 bg-white text-sm dark:divide-gray-800 dark:bg-gray-900"
-            aria-label="Certificates list"
+            aria-label="Energy certificates"
+            aria-busy={isLoading}
           >
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/50">
-                {['ID', 'kWh', 'Issued', 'Status', 'Mint tx'].map((h) => (
+                {['Certificate ID', 'kWh', 'Minted', 'Status', 'Action'].map((h) => (
                   <th
                     key={h}
                     scope="col"
@@ -108,96 +102,69 @@ export default async function CertificatesPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {rows.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400"
-                  >
-                    No certificates found.
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
+                    Loading…
                   </td>
                 </tr>
-              ) : (
-                rows.map((cert: CertRow) => (
-                  <tr
-                    key={cert.id}
-                    className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40"
-                  >
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/certificate/${cert.id}`}
-                        className="font-mono text-xs text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 rounded dark:text-blue-400"
-                      >
-                        {cert.id.slice(0, 8)}…
-                      </Link>
+              ) : data && data.length > 0 ? (
+                data.map((cert) => (
+                  <tr key={cert.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                      {cert.id.slice(0, 8)}…
                     </td>
-                    <td className="px-4 py-3 text-gray-900 dark:text-gray-100">
-                      {cert.kwh}
-                    </td>
+                    <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                      <time dateTime={cert.issued_at}>
-                        {new Date(cert.issued_at).toLocaleDateString()}
-                      </time>
+                      {new Date(cert.minted_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
                       {cert.retired ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                          <FlameKindling className="h-3 w-3" aria-hidden="true" />
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                          <Leaf className="h-3 w-3" aria-hidden="true" />
                           Retired
                         </span>
                       ) : (
-                        <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                          <Award className="h-3 w-3" aria-hidden="true" />
                           Active
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <a
-                        href={`https://stellar.expert/explorer/testnet/tx/${cert.mint_tx_hash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`Mint transaction for certificate ${cert.id.slice(0, 8)} — opens Stellar explorer`}
-                        className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 rounded dark:text-blue-400"
-                      >
-                        {cert.mint_tx_hash.slice(0, 8)}…
-                        <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      </a>
+                      {!cert.retired && (
+                        <button
+                          onClick={() => setRetiring(cert)}
+                          disabled={!connected}
+                          aria-label={`Retire certificate ${cert.id.slice(0, 8)}`}
+                          className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Retire
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No certificates found.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Pagination controls */}
-      <nav
-        aria-label="Pagination"
-        className="mt-4 flex items-center justify-between gap-4"
-      >
-        <span className="text-xs text-gray-500 dark:text-gray-400">
-          Showing {rows.length} certificate{rows.length !== 1 ? 's' : ''}
-        </span>
-        <div className="flex gap-2">
-          {hasPrev && (
-            <Link
-              href={`/certificates?limit=${limit}`}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              ← First
-            </Link>
-          )}
-          {nextCursor && (
-            <Link
-              href={`/certificates?cursor=${encodeURIComponent(nextCursor)}&limit=${limit}`}
-              className="rounded-lg bg-yellow-400 px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
-            >
-              Next →
-            </Link>
-          )}
-        </div>
-      </nav>
+      {retiring && (
+        <RetireModal
+          certificateId={retiring.id}
+          kwh={retiring.kwh}
+          onConfirm={handleRetire}
+          onClose={() => setRetiring(null)}
+        />
+      )}
     </div>
   )
 }
