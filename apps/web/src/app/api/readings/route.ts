@@ -6,6 +6,7 @@ import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
+import { fireWebhook } from '@/lib/webhooks'
 
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
   try {
     anchorTxHash = await anchorReading({ readingHash })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
+    void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
   } catch (err) {
     if (isAlreadyAnchoredError(err)) {
       return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
@@ -127,6 +129,8 @@ export async function POST(req: NextRequest) {
 
     // Invalidate any stale cache entries for this certificate
     await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
+
+    void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
