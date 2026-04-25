@@ -1,5 +1,5 @@
-import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract } from '@stellar/stellar-sdk'
-import { SorobanRpc } from '@stellar/stellar-sdk'
+import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract, Address, xdr } from '@stellar/stellar-sdk'
+import * as SorobanRpc from '@stellar/stellar-sdk/rpc'
 import { kwhToStroops, amountToScVal, addressToScVal, bytesToScVal } from '@solarproof/stellar'
 import { env } from '@/env'
 
@@ -153,6 +153,45 @@ export async function retireCertificate(
       .build()
 
   return submitTx(tx, minter, correlationId)
+}
+
+/**
+ * Pre-flight check before minting: verifies the recipient account exists on
+ * Stellar and has established a trustline for the energy_token contract.
+ *
+ * Throws a descriptive error with setup instructions if either check fails.
+ */
+export async function assertMintable(recipientAddress: string): Promise<void> {
+  const server = getServer()
+
+  // 1. Check account exists (Soroban RPC throws if not found)
+  try {
+    await server.getAccount(recipientAddress)
+  } catch {
+    throw new Error(
+      `Recipient account ${recipientAddress} does not exist on Stellar. ` +
+      `The account must be funded (minimum 1 XLM) before certificates can be minted. ` +
+      `Fund it at https://laboratory.stellar.org/#account-creator?network=test`
+    )
+  }
+
+  // 2. Check SAC trustline: a Balance entry must exist in the energy_token contract storage
+  const recipientScAddress = Address.account(Keypair.fromPublicKey(recipientAddress).rawPublicKey())
+  const balanceKey = xdr.ScVal.scvMap([
+    new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol('Balance'),
+      val: recipientScAddress.toScVal(),
+    }),
+  ])
+
+  try {
+    await server.getContractData(env.NEXT_PUBLIC_ENERGY_TOKEN_ID, balanceKey, SorobanRpc.Durability.Persistent)
+  } catch {
+    throw new Error(
+      `Recipient account ${recipientAddress} has no trustline for the energy_token contract (${env.NEXT_PUBLIC_ENERGY_TOKEN_ID}). ` +
+      `The account holder must call \`add_trustline\` on the contract to establish a trustline before certificates can be minted.`
+    )
+  }
 }
 
 /** Mint energy certificates after a successful anchor. */
