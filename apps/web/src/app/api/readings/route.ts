@@ -2,25 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verify } from '@noble/ed25519'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
-import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
-import { invalidateCert } from '@/lib/cache'
-
-function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
-  try {
-    return JSON.stringify(err)
-  } catch {
-    return 'Unknown error'
-  }
-}
-
-function isAlreadyAnchoredError(err: unknown): boolean {
-  const message = extractErrorMessage(err).toLowerCase()
-  return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
-}
+import { enqueue } from '@/lib/queue'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -32,10 +16,11 @@ const ReadingSchema = z.object({
 /**
  * POST /api/readings
  *
- * Accepts a signed meter reading, verifies the Ed25519 signature,
- * anchors the reading hash on-chain, then mints certificates.
+ * Verifies the Ed25519 signature, persists the reading, then enqueues
+ * the Stellar anchor + mint as an async job.
  *
- * Body: { meter_id, kwh, timestamp, signature_hex }
+ * Returns 202 Accepted immediately with { reading_id, job_id }.
+ * Poll GET /api/jobs/[job_id] for completion status.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
@@ -74,7 +59,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid meter signature' }, { status: 401 })
   }
 
-  // Persist reading
+  // Persist reading (anchored/minted will be updated by the background job)
   const { data: reading, error: readingErr } = await db
     .from('readings')
     .insert({
@@ -93,44 +78,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
-  // Anchor on-chain (hash only — full payload already in Supabase)
-  let anchorTxHash: string
-  try {
-    anchorTxHash = await anchorReading({ readingHash })
-    await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
-  } catch (err) {
-    if (isAlreadyAnchoredError(err)) {
-      return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
-    }
-    const message = extractErrorMessage(err)
-    return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
-  }
+  // Enqueue Stellar anchor + mint — returns immediately
+  const cooperative = meter.cooperatives as { admin_address: string } | null
+  const correlationId = crypto.randomUUID()
+  const jobId = await enqueue('anchor_and_mint', {
+    readingId: reading.id,
+    readingHashHex: readingHash.toString('hex'),
+    recipientAddress: cooperative?.admin_address ?? '',
+    kwh,
+    correlationId,
+  })
 
-  // Mint certificates
-  try {
-    const cooperative = meter.cooperatives as { admin_address: string } | null
-    const recipient = cooperative?.admin_address
-    if (!recipient) throw new Error('No cooperative admin address')
-
-    const mintTxHash = await mintCertificates(recipient, kwh)
-    await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', reading.id)
-    await db.from('certificates').insert({
-      cooperative_id: meter.cooperative_id,
-      reading_id: reading.id,
-      reading_hash: readingHash.toString('hex'),
-      anchor_tx_hash: anchorTxHash,
-      mint_tx_hash: mintTxHash,
-      kwh,
-      issued_at: new Date().toISOString(),
-      retired: false,
-    })
-
-    // Invalidate any stale cache entries for this certificate
-    await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
-
-    return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Mint failed'
-    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash }, { status: 500 })
-  }
+  return NextResponse.json(
+    { reading_id: reading.id, job_id: jobId, status_url: `/api/jobs/${jobId}` },
+    { status: 202 }
+  )
 }
