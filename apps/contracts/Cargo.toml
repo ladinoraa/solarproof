@@ -4,6 +4,7 @@ members = [
     "energy_token",
     "audit_registry",
     "community_governance",
+    "multisig_admin",
 ]
 
 [workspace.dependencies]

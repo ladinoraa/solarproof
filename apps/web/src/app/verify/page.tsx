@@ -66,7 +66,15 @@ export default function VerifyPage() {
             Certificate Verifier
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            No login required. Enter a certificate ID, reading hash, or transaction hash.
+            No login required. Enter a certificate ID, reading hash, or transaction hash.{' '}
+            <a
+              href="https://github.com/AnnabelJoe/solarproof/blob/main/docs/verify.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-gray-700 dark:hover:text-gray-300"
+            >
+              How to use this page
+            </a>
           </p>
         </div>
       </header>
