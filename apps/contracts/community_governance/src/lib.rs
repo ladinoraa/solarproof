@@ -83,16 +83,14 @@ pub enum DataKey {
     VoterIndex(Address),
     /// Reentrancy lock for vote(). Set to true while vote() is executing.
     VoteLock,
-    /// Quorum in basis points (1–10 000).
+    /// Quorum in basis points (1–10000). Default: 1000 (10%).
     QuorumBps,
-    /// Approval threshold in basis points (1–10 000).
+    /// Approval threshold in basis points (1–10000). Default: 5100 (51%).
     ThresholdBps,
     /// Pending contract upgrade proposal.
     PendingUpgrade,
     /// Contract version string.
     Version,
-    /// Execution timelock in ledgers (default 8 640 ≈ 24 h at 10 s/ledger).
-    ExecuteTimelock,
 }
 
 /// Pending contract upgrade proposal.
@@ -112,6 +110,10 @@ const EXECUTE_TIMELOCK_LEDGERS: u32 = 8_640;
 
 const DEFAULT_QUORUM_BPS: u32 = 1_000;
 const DEFAULT_THRESHOLD_BPS: u32 = 5_100;
+const VERSION: &str = "1.0.0";
+
+const DEFAULT_QUORUM_BPS: u32 = 1_000;    // 10%
+const DEFAULT_THRESHOLD_BPS: u32 = 5_100; // 51%
 const VERSION: &str = "1.0.0";
 
 /// Cooperative governance contract.
@@ -162,15 +164,16 @@ fn bitmap_set(env: &Env, proposal_id: u32, idx: u32) {
 
 #[contractimpl]
 impl CommunityGovernance {
-    /// Initialise the contract.
+    /// Initialise the contract. Must be called exactly once after deployment.
     ///
     /// # Arguments
     /// * `admin`                 — administrator address.
+    /// * `quorum`                — minimum yes-vote percentage required to pass (1–100).
     /// * `voting_period_ledgers` — number of ledgers each proposal stays open.
     ///
     /// # Panics
     /// * `"already initialized"` if called more than once.
-    pub fn initialize(env: Env, admin: Address, voting_period_ledgers: u32) {
+    pub fn initialize(env: Env, admin: Address, quorum: u32, voting_period_ledgers: u32) {
         if env.storage().instance().has(&DataKey::Admin) { panic!("already initialized"); }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::QuorumBps, &DEFAULT_QUORUM_BPS);
@@ -183,6 +186,7 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::Version, &String::from_str(&env, VERSION));
     }
 
+    /// Returns the contract version string (e.g. `"1.0.0"`).
     pub fn get_version(env: Env) -> String {
         env.storage().instance()
             .get(&DataKey::Version)
@@ -190,6 +194,15 @@ impl CommunityGovernance {
     }
 
     /// Migrate state schema to a new version. Admin-only.
+    ///
+    /// # Arguments
+    /// * `new_version` — version string to store (e.g. `"2.0.0"`).
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn migrate(env: Env, new_version: String) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
@@ -248,6 +261,7 @@ impl CommunityGovernance {
         proposals.set(count, proposal);
         env.storage().instance().set(&DataKey::ProposalCount, &count);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.events().publish((symbol_short!("propose"),), count);
         count
     }
 
@@ -296,6 +310,8 @@ impl CommunityGovernance {
 
         // Record vote in bitmap (single persistent write per 128 voters)
         bitmap_set(&env, proposal_id, idx);
+
+        env.events().publish((symbol_short!("vote"),), (proposal_id, voter, approve));
 
         // ── release lock ──────────────────────────────────────────────────
         env.storage().instance().set(&DataKey::VoteLock, &false);
@@ -468,6 +484,32 @@ impl CommunityGovernance {
     pub fn proposal_count(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0)
     }
+
+    /// Returns the current quorum in basis points.
+    pub fn get_quorum_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::QuorumBps).unwrap_or(DEFAULT_QUORUM_BPS)
+    }
+
+    /// Returns the current approval threshold in basis points.
+    pub fn get_threshold_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::ThresholdBps).unwrap_or(DEFAULT_THRESHOLD_BPS)
+    }
+
+    /// Update the quorum in basis points. Admin-only.
+    pub fn set_quorum_bps(env: Env, _admin: Address, bps: u32) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        stored_admin.require_auth();
+        assert!(bps >= 1 && bps <= 10_000, "quorum_bps must be 1-10000");
+        env.storage().instance().set(&DataKey::QuorumBps, &bps);
+    }
+
+    /// Update the approval threshold in basis points. Admin-only.
+    pub fn set_threshold_bps(env: Env, _admin: Address, bps: u32) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        stored_admin.require_auth();
+        assert!(bps >= 1 && bps <= 10_000, "threshold_bps must be 1-10000");
+        env.storage().instance().set(&DataKey::ThresholdBps, &bps);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +527,7 @@ mod tests {
         let id = env.register(CommunityGovernance, ());
         let client = CommunityGovernanceClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin, &100_u32);
+        client.initialize(&admin, &100_u32, &100_u32);
         (env, admin, client)
     }
 
