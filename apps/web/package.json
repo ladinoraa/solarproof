@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@noble/ed25519": "2.1.0",
     "@sentry/nextjs": "^9.0.0",
     "@solarproof/stellar": "workspace:*",
     "@vercel/analytics": "^1.4.0",

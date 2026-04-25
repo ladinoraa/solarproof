@@ -86,10 +86,12 @@ export async function POST(req: NextRequest) {
   const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))
 
   // Verify Ed25519 signature
-  const sigValid = await verify(
-    Buffer.from(signature_hex, 'hex'),
-    readingHash,
-    Buffer.from(meter.pubkey_hex, 'hex')
+  const sigValid = await Promise.resolve().then(() =>
+    verify(
+      Buffer.from(signature_hex, 'hex'),
+      readingHash,
+      Buffer.from(meter.pubkey_hex, 'hex')
+    )
   ).catch(() => false)
 
   if (!sigValid) {
