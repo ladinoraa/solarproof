@@ -31,7 +31,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, B
 
 /// The lifecycle state of a proposal.
 #[contracttype]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ProposalStatus {
     /// Voting is open.
     Active,
@@ -41,6 +41,8 @@ pub enum ProposalStatus {
     Rejected,
     /// Voting closed; no votes cast.
     Expired,
+    /// Passed proposal has been executed after the timelock.
+    Executed,
 }
 
 /// A governance proposal.
@@ -63,6 +65,8 @@ pub struct Proposal {
     pub end_ledger: u32,
     /// Current lifecycle status.
     pub status: ProposalStatus,
+    /// Ledger sequence after which the proposal may be executed (set on Passed).
+    pub execute_after: u32,
 }
 
 /// Enumeration of all instance-storage keys used by this contract.
@@ -101,6 +105,12 @@ pub struct UpgradeProposal {
 
 /// 48 hours expressed in ledgers (10-second ledger time).
 const UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280;
+/// 24 hours expressed in ledgers (10-second ledger time).
+const EXECUTE_TIMELOCK_LEDGERS: u32 = 8_640;
+
+const DEFAULT_QUORUM_BPS: u32 = 1_000;
+const DEFAULT_THRESHOLD_BPS: u32 = 5_100;
+const VERSION: &str = "1.0.0";
 
 const DEFAULT_QUORUM_BPS: u32 = 1_000;    // 10%
 const DEFAULT_THRESHOLD_BPS: u32 = 5_100; // 51%
@@ -199,6 +209,30 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::Version, &new_version);
     }
 
+    /// Set quorum in basis points (1–10 000). Admin-only.
+    pub fn set_quorum_bps(env: Env, admin: Address, bps: u32) {
+        admin.require_auth();
+        assert!(bps >= 1 && bps <= 10_000, "quorum_bps must be 1-10000");
+        env.storage().instance().set(&DataKey::QuorumBps, &bps);
+    }
+
+    /// Returns the current quorum in basis points.
+    pub fn get_quorum_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::QuorumBps).unwrap_or(DEFAULT_QUORUM_BPS)
+    }
+
+    /// Set approval threshold in basis points (1–10 000). Admin-only.
+    pub fn set_threshold_bps(env: Env, admin: Address, bps: u32) {
+        admin.require_auth();
+        assert!(bps >= 1 && bps <= 10_000, "threshold_bps must be 1-10000");
+        env.storage().instance().set(&DataKey::ThresholdBps, &bps);
+    }
+
+    /// Returns the current approval threshold in basis points.
+    pub fn get_threshold_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::ThresholdBps).unwrap_or(DEFAULT_THRESHOLD_BPS)
+    }
+
     /// Submit a new proposal.
     ///
     /// # Arguments
@@ -221,6 +255,7 @@ impl CommunityGovernance {
             yes_votes: 0, no_votes: 0,
             end_ledger: env.ledger().sequence() + period,
             status: ProposalStatus::Active,
+            execute_after: 0,
         };
         let mut proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
         proposals.set(count, proposal);
@@ -309,6 +344,10 @@ impl CommunityGovernance {
         p.status = if total == 0 {
             ProposalStatus::Expired
         } else if p.yes_votes * 10_000 / total >= threshold_bps && total * 10_000 >= quorum_bps {
+            let timelock: u32 = env.storage().instance()
+                .get(&DataKey::ExecuteTimelock)
+                .unwrap_or(EXECUTE_TIMELOCK_LEDGERS);
+            p.execute_after = env.ledger().sequence() + timelock;
             ProposalStatus::Passed
         } else {
             ProposalStatus::Rejected
@@ -332,8 +371,9 @@ impl CommunityGovernance {
     ///
     /// # Events
     /// Emits `(topic: "upg_prop", data: (new_wasm_hash, unlock_ledger))`.
-    pub fn propose_upgrade(env: Env, new_wasm_hash: soroban_sdk::BytesN<32>) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+    pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
         admin.require_auth();
         if env.storage().instance().has(&DataKey::PendingUpgrade) {
             panic!("upgrade already pending");
@@ -351,8 +391,9 @@ impl CommunityGovernance {
     ///
     /// # Events
     /// Emits `(topic: "upg_cncl", data: ())`.
-    pub fn cancel_upgrade(env: Env) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+    pub fn cancel_upgrade(env: Env, admin: Address) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
         admin.require_auth();
         if !env.storage().instance().has(&DataKey::PendingUpgrade) {
             panic!("no pending upgrade");
@@ -369,8 +410,9 @@ impl CommunityGovernance {
     ///
     /// # Events
     /// Emits `(topic: "upg_exec", data: new_wasm_hash)`.
-    pub fn execute_upgrade(env: Env) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+    pub fn execute_upgrade(env: Env, admin: Address) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
         admin.require_auth();
         let proposal: UpgradeProposal = env.storage().instance()
             .get(&DataKey::PendingUpgrade)
@@ -386,6 +428,50 @@ impl CommunityGovernance {
     /// Returns the pending upgrade proposal, if any.
     pub fn pending_upgrade(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&DataKey::PendingUpgrade)
+    }
+
+    /// Set the execution timelock (in ledgers). Admin-only.
+    ///
+    /// # Panics
+    /// * `"timelock must be > 0"` if `ledgers` is zero.
+    pub fn set_execution_timelock(env: Env, admin: Address, ledgers: u32) {
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
+        admin.require_auth();
+        assert!(ledgers > 0, "timelock must be > 0");
+        env.storage().instance().set(&DataKey::ExecuteTimelock, &ledgers);
+    }
+
+    /// Returns the current execution timelock in ledgers.
+    pub fn get_execution_timelock(env: Env) -> u32 {
+        env.storage().instance()
+            .get(&DataKey::ExecuteTimelock)
+            .unwrap_or(EXECUTE_TIMELOCK_LEDGERS)
+    }
+
+    /// Execute a passed proposal after its timelock has elapsed.
+    ///
+    /// Marks the proposal as `Executed` and emits an event. The caller is
+    /// responsible for any on-chain action the proposal encodes.
+    ///
+    /// # Panics
+    /// * `"proposal not found"` if `proposal_id` does not exist.
+    /// * `"proposal not passed"` if the proposal is not in `Passed` status.
+    /// * `"timelock not elapsed"` if `execute_after` has not been reached.
+    ///
+    /// # Events
+    /// Emits `(topic: "exec", data: proposal_id)`.
+    pub fn execute(env: Env, proposal_id: u32) {
+        let mut proposals: Map<u32, Proposal> = env.storage().instance()
+            .get(&DataKey::Proposals)
+            .expect("not initialized");
+        let mut p = proposals.get(proposal_id).expect("proposal not found");
+        assert!(p.status == ProposalStatus::Passed, "proposal not passed");
+        assert!(env.ledger().sequence() >= p.execute_after, "timelock not elapsed");
+        p.status = ProposalStatus::Executed;
+        proposals.set(proposal_id, p);
+        env.storage().instance().set(&DataKey::Proposals, &proposals);
+        env.events().publish((symbol_short!("exec"),), proposal_id);
     }
 
     /// Returns the proposal with the given ID, or `None` if it does not exist.
@@ -433,7 +519,7 @@ impl CommunityGovernance {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env, String};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Env, String};
 
     fn setup() -> (Env, Address, CommunityGovernanceClient<'static>) {
         let env = Env::default();
@@ -558,7 +644,7 @@ mod tests {
         env.mock_all_auths();
         let id = env.register(CommunityGovernance, ());
         let client = CommunityGovernanceClient::new(&env, &id);
-        client.initialize(&Address::generate(&env), &51_u32, &1100_u32);
+        client.initialize(&Address::generate(&env), &1100_u32);
 
         let proposer = Address::generate(&env);
         let pid = client.propose(&proposer, &String::from_str(&env, "Big"), &String::from_str(&env, "Vote"));
@@ -618,5 +704,66 @@ mod tests {
         let (env, admin, client) = setup();
         client.propose_upgrade(&admin, &dummy_hash(&env));
         client.execute_upgrade(&admin);
+    }
+
+    // ── proposal execution timelock tests ─────────────────────────────────────
+
+    /// Helper: create a passed proposal (voting period = 100 ledgers, 2 yes votes).
+    fn pass_proposal(env: &Env, client: &CommunityGovernanceClient) -> u32 {
+        let proposer = Address::generate(env);
+        let id = client.propose(&proposer, &String::from_str(env, "T"), &String::from_str(env, "D"));
+        client.vote(&Address::generate(env), &id, &true);
+        client.vote(&Address::generate(env), &id, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        id
+    }
+
+    #[test]
+    #[should_panic(expected = "timelock not elapsed")]
+    fn test_execute_before_timelock_panics() {
+        let (env, _admin, client) = setup();
+        let id = pass_proposal(&env, &client);
+        // execute_after = finalize_ledger + 8640; we are still at finalize_ledger
+        client.execute(&id);
+    }
+
+    #[test]
+    fn test_execute_after_timelock_succeeds() {
+        let (env, _admin, client) = setup();
+        let id = pass_proposal(&env, &client);
+        env.ledger().with_mut(|l| l.sequence_number += EXECUTE_TIMELOCK_LEDGERS);
+        client.execute(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Executed);
+    }
+
+    #[test]
+    #[should_panic(expected = "proposal not passed")]
+    fn test_execute_non_passed_panics() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id); // Expired (no votes)
+        client.execute(&id);
+    }
+
+    #[test]
+    fn test_set_execution_timelock_configurable() {
+        let (env, admin, client) = setup();
+        client.set_execution_timelock(&admin, &500_u32);
+        assert_eq!(client.get_execution_timelock(), 500);
+        let id = pass_proposal(&env, &client);
+        // timelock is now 500 ledgers; advance exactly 500
+        env.ledger().with_mut(|l| l.sequence_number += 500);
+        client.execute(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Executed);
+    }
+
+    #[test]
+    #[should_panic(expected = "timelock must be > 0")]
+    fn test_set_execution_timelock_zero_panics() {
+        let (_env, admin, client) = setup();
+        client.set_execution_timelock(&admin, &0_u32);
     }
 }
