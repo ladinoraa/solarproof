@@ -36,6 +36,16 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['certificates']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['certificates']['Insert']>
       }
+      jobs: {
+        Row: {
+          id: string; type: string; payload: Record<string, unknown>
+          status: 'pending' | 'running' | 'done' | 'failed'
+          attempts: number; result: Record<string, unknown> | null
+          error: string | null; created_at: string; updated_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['jobs']['Row'], 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Database['public']['Tables']['jobs']['Insert']>
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
