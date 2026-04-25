@@ -1,39 +1,113 @@
 import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract } from '@stellar/stellar-sdk'
 import { SorobanRpc } from '@stellar/stellar-sdk'
 import { kwhToStroops, amountToScVal, addressToScVal, bytesToScVal } from '@solarproof/stellar'
+import { env } from '@/env'
 
 const NETWORK_PASSPHRASE = Networks.TESTNET
 const RPC_URL = 'https://soroban-testnet.stellar.org'
+const RPC_TIMEOUT_MS = 10_000
+
+// ---------------------------------------------------------------------------
+// Circuit breaker — opens after 5 consecutive timeouts, resets after 60 s
+// ---------------------------------------------------------------------------
+const CB = {
+  failures: 0,
+  openUntil: 0,
+  THRESHOLD: 5,
+  RESET_MS: 60_000,
+}
+
+export class StellarTimeoutError extends Error {
+  readonly correlationId: string
+  constructor(correlationId: string) {
+    super(`Stellar RPC timeout [${correlationId}]`)
+    this.name = 'StellarTimeoutError'
+    this.correlationId = correlationId
+  }
+}
+
+export class CircuitOpenError extends Error {
+  readonly retryAfter: number
+  constructor(retryAfter: number) {
+    super('Stellar RPC circuit open — too many recent timeouts')
+    this.name = 'CircuitOpenError'
+    this.retryAfter = retryAfter
+  }
+}
+
+function checkCircuit() {
+  if (CB.openUntil && Date.now() < CB.openUntil) {
+    throw new CircuitOpenError(Math.ceil((CB.openUntil - Date.now()) / 1000))
+  }
+  if (CB.openUntil && Date.now() >= CB.openUntil) {
+    CB.failures = 0
+    CB.openUntil = 0
+  }
+}
+
+function recordSuccess() {
+  CB.failures = 0
+  CB.openUntil = 0
+}
+
+function recordFailure(correlationId: string) {
+  CB.failures++
+  console.error(`[stellar] timeout correlationId=${correlationId} failures=${CB.failures}`)
+  if (CB.failures >= CB.THRESHOLD) {
+    CB.openUntil = Date.now() + CB.RESET_MS
+    console.error(`[stellar] circuit opened until ${new Date(CB.openUntil).toISOString()}`)
+  }
+}
+
+/** Wrap a promise with a timeout. Throws StellarTimeoutError on expiry. */
+async function withTimeout<T>(promise: Promise<T>, correlationId: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new StellarTimeoutError(correlationId)), RPC_TIMEOUT_MS)
+  })
+  try {
+    const result = await Promise.race([promise, timeout])
+    clearTimeout(timer!)
+    return result
+  } catch (err) {
+    clearTimeout(timer!)
+    throw err
+  }
+}
+
+/** Execute an RPC call with timeout + circuit breaker. */
+async function rpcCall<T>(fn: () => Promise<T>, correlationId: string): Promise<T> {
+  checkCircuit()
+  try {
+    const result = await withTimeout(fn(), correlationId)
+    recordSuccess()
+    return result
+  } catch (err) {
+    if (err instanceof StellarTimeoutError) {
+      recordFailure(correlationId)
+    }
+    throw err
+  }
+}
+
+/** Delays that grow as 1 s, 2 s, 4 s for attempts 1, 2, 3. */
+const BACKOFF_MS = [1_000, 2_000, 4_000]
+const MAX_RETRIES = 3
 
 /** Return a Soroban RPC server pointed at the testnet endpoint. */
 function getServer() {
-  return new SorobanRpc.Server(RPC_URL)
+  return new SorobanRpc.Server(env.NEXT_PUBLIC_STELLAR_RPC_URL)
 }
 
-/**
- * Sign and submit a prepared Soroban transaction.
- *
- * The transaction must already be simulated (via `server.prepareTransaction`)
- * before calling this helper — raw transactions are rejected by the network.
- *
- * Throws if the network returns `status === 'ERROR'` so callers can surface
- * the failure without having to inspect the result object themselves.
- *
- * @param tx - A prepared (simulated + fee-bumped) transaction.
- * @param signer - Keypair used to sign the transaction.
- * @returns The transaction hash on success.
- */
-async function submitTx(tx: ReturnType<typeof TransactionBuilder.prototype.build>, signer: Keypair) {
+async function submitTx(
+  tx: ReturnType<typeof TransactionBuilder.prototype.build>,
+  signer: Keypair,
+  correlationId: string
+) {
   const server = getServer()
-  const prepared = await server.prepareTransaction(tx)
+  const prepared = await rpcCall(() => server.prepareTransaction(tx), correlationId)
   prepared.sign(signer)
-
-  const result = await server.sendTransaction(prepared)
-
-  // 'ERROR' is a terminal state — the transaction was rejected by the network.
-  // Other non-success statuses (e.g. 'PENDING') indicate the tx is in-flight
-  // and would require polling, but we treat them as success here since the hash
-  // is available for the caller to track.
+  const result = await rpcCall(() => server.sendTransaction(prepared), correlationId)
   if (result.status === 'ERROR') {
     throw new Error(`Transaction failed: ${JSON.stringify(result.errorResult)}`)
   }
@@ -42,103 +116,60 @@ async function submitTx(tx: ReturnType<typeof TransactionBuilder.prototype.build
 }
 
 /**
- * Anchor a meter reading hash in the `audit_registry` contract.
- *
- * Only the 32-byte SHA-256 hash is stored on-chain (issue #59 optimisation).
- * The full payload (pubkey, signature, kwh, meter_id, timestamp) is persisted
- * off-chain in Supabase **before** this call so that the hash is always
- * verifiable even if the API is unavailable.
- *
- * @param params.readingHash - 32-byte SHA-256 digest of the canonical reading payload.
- * @returns Stellar transaction hash of the anchor operation.
+ * Anchor a reading hash in the audit_registry contract.
  */
-export async function anchorReading(params: { readingHash: Buffer }): Promise<string> {
+export async function anchorReading(params: {
+  readingHash: Buffer
+  correlationId?: string
+}): Promise<string> {
+  const correlationId = params.correlationId ?? crypto.randomUUID()
   const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
   const server = getServer()
-  const account = await server.getAccount(minter.publicKey())
+  const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
 
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
-    .setTimeout(30)
-    .build()
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
+      .setTimeout(30)
+      .build()
 
-  return submitTx(tx, minter)
+  return submitTx(tx, minter, correlationId)
 }
 
-/**
- * Retire (burn) energy certificates on behalf of a certificate holder.
- *
- * Retirement is irreversible — it permanently removes tokens from circulation
- * and emits a `retire` event on-chain, which regulators can use to confirm
- * that the energy was consumed and not double-counted.
- *
- * The minter account signs the retirement transaction because the `retire()`
- * contract function requires minter authority (it burns tokens from the
- * owner's balance on their behalf).
- *
- * @param ownerAddress - Stellar G-address of the certificate holder.
- * @param kwh - Amount of energy (in kWh) to retire.
- * @returns Stellar transaction hash of the retire operation.
- */
-export async function retireCertificate(ownerAddress: string, kwh: number): Promise<string> {
-  const minter = Keypair.fromSecret(process.env.MINTER_SECRET_KEY!)
-  const server = getServer()
-  const account = await server.getAccount(minter.publicKey())
-  const contract = new Contract(process.env.NEXT_PUBLIC_ENERGY_TOKEN_ID!)
-
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        'retire',
-        addressToScVal(ownerAddress),
-        // Convert kWh to stroops (1 kWh = 10^7 stroops) before encoding as i128.
-        // The contract stores all amounts in stroops to avoid floating-point on-chain.
-        amountToScVal(kwhToStroops(kwh))
-      )
-    )
-    .setTimeout(30)
-    .build()
-
-  return submitTx(tx, minter)
-}
-
-/**
- * Mint energy certificates to a recipient after a successful anchor.
- *
- * Minting is always preceded by `anchorReading()` — the anchor proves the
- * reading is genuine before any tokens are created. Calling this function
- * without a prior anchor would violate the protocol invariant.
- *
- * @param recipientAddress - Stellar G-address of the certificate recipient.
- * @param kwh - Amount of energy (in kWh) to mint as certificates.
- * @returns Stellar transaction hash of the mint operation.
- */
-export async function mintCertificates(recipientAddress: string, kwh: number): Promise<string> {
+/** Retire energy certificates on-chain. */
+export async function retireCertificate(
+  ownerAddress: string,
+  kwh: number,
+  correlationId = crypto.randomUUID()
+): Promise<string> {
   const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
   const server = getServer()
-  const account = await server.getAccount(minter.publicKey())
+  const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
 
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      contract.call(
-        'mint',
-        addressToScVal(recipientAddress),
-        amountToScVal(kwhToStroops(kwh))
-      )
-    )
-    .setTimeout(30)
-    .build()
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('retire', addressToScVal(ownerAddress), amountToScVal(kwhToStroops(kwh))))
+      .setTimeout(30)
+      .build()
 
-  return submitTx(tx, minter)
+  return submitTx(tx, minter, correlationId)
+}
+
+/** Mint energy certificates after a successful anchor. */
+export async function mintCertificates(
+  recipientAddress: string,
+  kwh: number,
+  correlationId = crypto.randomUUID()
+): Promise<string> {
+  const minter = Keypair.fromSecret(env.MINTER_SECRET_KEY)
+  const server = getServer()
+  const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
+  const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
+
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('mint', addressToScVal(recipientAddress), amountToScVal(kwhToStroops(kwh))))
+      .setTimeout(30)
+      .build()
+
+  return submitTx(tx, minter, correlationId)
 }
