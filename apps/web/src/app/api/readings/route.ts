@@ -6,6 +6,7 @@ import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
+import { fireWebhook } from '@/lib/webhooks'
 
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -22,11 +23,14 @@ function isAlreadyAnchoredError(err: unknown): boolean {
   return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
 }
 
+const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
   signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
+  nonce: z.string().min(1).max(128).optional(),
 })
 
 /**
@@ -44,8 +48,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { meter_id, kwh, timestamp, signature_hex } = parsed.data
+  const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
   const db = createServiceClient()
+
+  // Idempotency check: return cached response if nonce was seen within 24 h
+  if (nonce) {
+    const { data: existing } = await db
+      .from('idempotency_keys')
+      .select('response, created_at')
+      .eq('nonce', nonce)
+      .single()
+
+    if (existing) {
+      const age = Date.now() - new Date(existing.created_at).getTime()
+      if (age < NONCE_TTL_MS) {
+        return NextResponse.json(existing.response, { status: 200 })
+      }
+      // Expired — delete and allow re-processing
+      await db.from('idempotency_keys').delete().eq('nonce', nonce)
+    }
+  }
 
   // Fetch meter + cooperative
   const { data: meter } = await db
@@ -98,6 +120,7 @@ export async function POST(req: NextRequest) {
   try {
     anchorTxHash = await anchorReading({ readingHash })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
+    void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
   } catch (err) {
     if (isAlreadyAnchoredError(err)) {
       return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
@@ -127,6 +150,8 @@ export async function POST(req: NextRequest) {
 
     // Invalidate any stale cache entries for this certificate
     await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
+
+    void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
