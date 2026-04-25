@@ -176,6 +176,22 @@ impl EnergyToken {
         env.events().publish((symbol_short!("burn"),), (from, amount));
     }
 
+    /// Retire (permanently burn) certificates, emitting a `retire` event.
+    ///
+    /// Semantically identical to `burn` but emits a distinct `retire` event
+    /// so indexers can distinguish voluntary retirement from generic burns.
+    ///
+    /// # Authorization
+    /// Requires `from` authorisation.
+    pub fn retire(env: Env, from: Address, amount: i128) {
+        from.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        Self::require_not_paused(&env);
+        Self::deduct_balance(&env, &from, amount);
+        Self::add_burned(&env, amount);
+        env.events().publish((symbol_short!("retire"),), (from, amount));
+    }
+
     pub fn total_supply(env: Env) -> i128 {
         let minted: i128 = env
             .storage()
@@ -543,6 +559,27 @@ mod tests {
         let (env, client) = setup();
         let user = Address::generate(&env);
         client.burn(&user, &1_i128);
+    }
+
+    // retire
+
+    #[test]
+    fn test_retire_reduces_supply_and_emits_event() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &300_i128);
+        assert_eq!(client.balance(&user), 700_i128);
+        assert_eq!(client.total_supply(), 700_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_retire_zero_panics() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &100_i128);
+        client.retire(&user, &0_i128);
     }
 
     // approve

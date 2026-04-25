@@ -170,7 +170,10 @@ impl AuditRegistry {
         let count: u32 = env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalAnchors, &(count + 1));
 
-        env.events().publish((symbol_short!("anchor"),), reading_hash);
+        env.events().publish(
+            (symbol_short!("anchor"),),
+            (reading_hash, env.ledger().sequence(), env.ledger().timestamp()),
+        );
         Ok(())
     }
 
