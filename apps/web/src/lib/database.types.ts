@@ -26,6 +26,13 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['readings']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['readings']['Insert']>
       }
+      idempotency_keys: {
+        Row: {
+          nonce: string; reading_id: string; response: Json; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['idempotency_keys']['Row'], 'created_at'>
+        Update: Partial<Database['public']['Tables']['idempotency_keys']['Insert']>
+      }
       certificates: {
         Row: {
           id: string; cooperative_id: string; reading_id: string
