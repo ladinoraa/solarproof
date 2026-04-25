@@ -5,16 +5,18 @@ export interface Database {
     Tables: {
       cooperatives: {
         Row: { id: string; name: string; admin_address: string; created_at: string }
-        Insert: Omit<Database['public']['Tables']['cooperatives']['Row'], 'id' | 'created_at'>
-        Update: Partial<Database['public']['Tables']['cooperatives']['Insert']>
+        Insert: { name: string; admin_address: string }
+        Update: Partial<{ name: string; admin_address: string }>
+        Relationships: []
       }
       meters: {
         Row: {
           id: string; cooperative_id: string; serial_number: string
           pubkey_hex: string; active: boolean; created_at: string
         }
-        Insert: Omit<Database['public']['Tables']['meters']['Row'], 'id' | 'created_at'>
-        Update: Partial<Database['public']['Tables']['meters']['Insert']>
+        Insert: { cooperative_id: string; serial_number: string; pubkey_hex: string; active: boolean }
+        Update: Partial<{ cooperative_id: string; serial_number: string; pubkey_hex: string; active: boolean }>
+        Relationships: []
       }
       readings: {
         Row: {
@@ -23,8 +25,26 @@ export interface Database {
           anchor_tx_hash: string | null; mint_tx_hash: string | null
           anchored: boolean; minted: boolean
         }
-        Insert: Omit<Database['public']['Tables']['readings']['Row'], 'id'>
-        Update: Partial<Database['public']['Tables']['readings']['Insert']>
+        Insert: {
+          meter_id: string; kwh: number; timestamp: string
+          reading_hash: string; signature_hex: string
+          anchor_tx_hash?: string | null; mint_tx_hash?: string | null
+          anchored: boolean; minted: boolean
+        }
+        Update: Partial<{
+          meter_id: string; kwh: number; timestamp: string
+          reading_hash: string; signature_hex: string
+          anchor_tx_hash: string | null; mint_tx_hash: string | null
+          anchored: boolean; minted: boolean
+        }>
+        Relationships: []
+      }
+      idempotency_keys: {
+        Row: {
+          nonce: string; reading_id: string; response: Json; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['idempotency_keys']['Row'], 'created_at'>
+        Update: Partial<Database['public']['Tables']['idempotency_keys']['Insert']>
       }
       certificates: {
         Row: {
@@ -33,8 +53,35 @@ export interface Database {
           kwh: number; issued_at: string; retired: boolean
           retired_at: string | null; retired_by: string | null
         }
-        Insert: Omit<Database['public']['Tables']['certificates']['Row'], 'id'>
-        Update: Partial<Database['public']['Tables']['certificates']['Insert']>
+        Insert: {
+          cooperative_id: string; reading_id: string
+          reading_hash: string; mint_tx_hash: string; anchor_tx_hash: string
+          kwh: number; issued_at: string; retired: boolean
+          retired_at?: string | null; retired_by?: string | null
+        }
+        Update: Partial<{
+          cooperative_id: string; reading_id: string
+          reading_hash: string; mint_tx_hash: string; anchor_tx_hash: string
+          kwh: number; issued_at: string; retired: boolean
+          retired_at: string | null; retired_by: string | null
+        }>
+        Relationships: []
+      }
+      webhook_endpoints: {
+        Row: {
+          id: string; cooperative_id: string; url: string; secret: string
+          events: string[]; active: boolean; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['webhook_endpoints']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_endpoints']['Insert']>
+      }
+      webhook_logs: {
+        Row: {
+          id: string; endpoint_id: string; event: string; payload: Json
+          status: string; attempts: number; response_status: number | null; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['webhook_logs']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_logs']['Insert']>
       }
     }
     Views: Record<string, never>
