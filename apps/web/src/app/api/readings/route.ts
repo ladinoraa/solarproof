@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verify } from '@noble/ed25519'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
-import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
@@ -36,10 +35,11 @@ const ReadingSchema = z.object({
 /**
  * POST /api/readings
  *
- * Accepts a signed meter reading, verifies the Ed25519 signature,
- * anchors the reading hash on-chain, then mints certificates.
+ * Verifies the Ed25519 signature, persists the reading, then enqueues
+ * the Stellar anchor + mint as an async job.
  *
- * Body: { meter_id, kwh, timestamp, signature_hex }
+ * Returns 202 Accepted immediately with { reading_id, job_id }.
+ * Poll GET /api/jobs/[job_id] for completion status.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid meter signature' }, { status: 401 })
   }
 
-  // Persist reading
+  // Persist reading (anchored/minted will be updated by the background job)
   const { data: reading, error: readingErr } = await db
     .from('readings')
     .insert({
