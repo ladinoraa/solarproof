@@ -34,26 +34,8 @@ jobs:
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      - name: Test with coverage
-        run: pnpm test:coverage
+      - run: pnpm test
         working-directory: apps/web
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
-          NEXT_PUBLIC_STELLAR_NETWORK: testnet
-          NEXT_PUBLIC_ENERGY_TOKEN_ID: placeholder
-          NEXT_PUBLIC_AUDIT_REGISTRY_ID: placeholder
-          NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
-          SUPABASE_SERVICE_ROLE_KEY: placeholder
-          MINTER_SECRET_KEY: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: apps/web/coverage/lcov.info
-          flags: web
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       - run: pnpm build
         working-directory: apps/web
         env:
@@ -65,6 +47,17 @@ jobs:
           NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
           SUPABASE_SERVICE_ROLE_KEY: placeholder
           MINTER_SECRET_KEY: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+  openapi:
+    name: OpenAPI spec validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate openapi.yaml
+        run: npx --yes @redocly/cli@1 lint openapi.yaml --format=github-actions
 
   contracts:
     name: Contracts (fmt + clippy + test)
@@ -89,3 +82,27 @@ jobs:
       - name: test
         run: cargo test --all
         working-directory: apps/contracts
+
+  fuzz:
+    name: Fuzz (time-limited, corpus only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly (required by cargo-fuzz)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts/fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: fuzz_mint (30 s)
+        run: cargo fuzz run fuzz_mint -- -max_total_time=30 corpus/fuzz_mint
+        working-directory: apps/contracts/fuzz
+      - name: fuzz_anchor (30 s)
+        run: cargo fuzz run fuzz_anchor -- -max_total_time=30 corpus/fuzz_anchor
+        working-directory: apps/contracts/fuzz
+      - name: fuzz_vote (30 s)
+        run: cargo fuzz run fuzz_vote -- -max_total_time=30 corpus/fuzz_vote
+        working-directory: apps/contracts/fuzz

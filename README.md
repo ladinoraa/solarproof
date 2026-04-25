@@ -187,6 +187,8 @@ solarproof/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `develop`.
 
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
+
 ---
 
 ## License

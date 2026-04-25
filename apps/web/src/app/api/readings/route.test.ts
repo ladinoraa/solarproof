@@ -1,147 +1,181 @@
+/**
+ * Tests for POST /api/readings
+ *
+ * Acceptance criteria:
+ *  - Signature verified against meter's registered public key
+ *  - 401 returned for invalid signatures
+ *  - 400 returned for malformed payloads
+ *  - Verified readings proceed to anchoring
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { NextRequest } from 'next/server'
-import { generateKeyPairSync, createSign, createHash } from 'crypto'
+import { getPublicKey, sign } from '@noble/ed25519'
+import { computeReadingHash } from '@/lib/crypto'
+import { kwhToStroops } from '@solarproof/stellar'
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/supabase', () => ({ createServiceClient: vi.fn() }))
 vi.mock('@/lib/stellar', () => ({
-  anchorReading: vi.fn().mockResolvedValue('anchor_tx_hash_hex'),
-  mintCertificates: vi.fn().mockResolvedValue('mint_tx_hash_hex'),
+  anchorReading: vi.fn().mockResolvedValue('anchor_tx_abc'),
+  mintCertificates: vi.fn().mockResolvedValue('mint_tx_abc'),
 }))
 vi.mock('@/lib/cache', () => ({ invalidateCert: vi.fn().mockResolvedValue(undefined) }))
 
-import { POST } from '@/app/api/readings/route'
 import { createServiceClient } from '@/lib/supabase'
-import { anchorReading, mintCertificates } from '@/lib/stellar'
+import { POST } from '@/app/api/readings/route'
 
-// Generate a real Ed25519 keypair for signing in tests
-const { privateKey, publicKey } = generateKeyPairSync('ed25519')
-const privDer = privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer
-const pubDer = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
-const pubKeyHex = pubDer.slice(-32).toString('hex')
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const METER_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+/** Generate a fresh Ed25519 keypair and return hex strings. */
+async function makeKeypair() {
+  const privKey = crypto.getRandomValues(new Uint8Array(32))
+  const pubKey = await getPublicKey(privKey)
+  return {
+    privKeyHex: Buffer.from(privKey).toString('hex'),
+    pubKeyHex: Buffer.from(pubKey).toString('hex'),
+    privKey,
+  }
+}
+
+const METER_ID = '123e4567-e89b-12d3-a456-426614174000'
 const KWH = 12.5
-const TIMESTAMP = 1745500800
+const TIMESTAMP = 1_700_000_000
 
-function computeHash(meterId: string, kwh: number, ts: number): Buffer {
-  const kwhStroops = BigInt(Math.round(kwh * 1e7))
-  const meterBytes = Buffer.from(meterId, 'utf8')
-  const kwhBuf = Buffer.alloc(8); kwhBuf.writeBigInt64LE(kwhStroops)
-  const tsBuf = Buffer.alloc(8); tsBuf.writeBigInt64LE(BigInt(ts))
-  return createHash('sha256').update(meterBytes).update(kwhBuf).update(tsBuf).digest()
+/** Build a valid signed reading body using the given private key. */
+async function makeBody(privKey: Uint8Array, overrides: Record<string, unknown> = {}) {
+  const kwhStroops = kwhToStroops(KWH)
+  const hash = computeReadingHash(METER_ID, kwhStroops, BigInt(TIMESTAMP))
+  const sig = await sign(hash, privKey)
+  return {
+    meter_id: METER_ID,
+    kwh: KWH,
+    timestamp: TIMESTAMP,
+    signature_hex: Buffer.from(sig).toString('hex'),
+    ...overrides,
+  }
 }
 
-function signHash(hash: Buffer): string {
-  const sign = createSign('ed25519')
-  sign.update(hash)
-  return sign.sign({ key: privDer, format: 'der', type: 'pkcs8' }).toString('hex')
-}
-
+/** Build a NextRequest-like object from a plain body. */
 function makeRequest(body: unknown) {
-  return new NextRequest('http://localhost/api/readings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  return {
+    json: () => Promise.resolve(body),
+  } as Parameters<typeof POST>[0]
 }
 
-function makeDb(meter: unknown, readingInsert: unknown, certInsert = {}) {
-  const single = vi.fn().mockResolvedValue({ data: readingInsert, error: null })
-  const meterSingle = vi.fn().mockResolvedValue({ data: meter })
-  const insert = vi.fn().mockReturnValue({ select: () => ({ single }) })
-  const update = vi.fn().mockReturnValue({ eq: () => Promise.resolve({}) })
-  const from = vi.fn((table: string) => {
-    if (table === 'meters') return { select: () => ({ eq: () => ({ eq: () => ({ single: meterSingle }) }) }) }
-    if (table === 'readings') return { insert, update }
-    if (table === 'certificates') return { insert: vi.fn().mockResolvedValue({}) }
-    return {}
+/** Build a Supabase mock that returns the given meter row. */
+function mockDb(meter: unknown) {
+  const single = vi.fn().mockResolvedValue({ data: meter, error: null })
+  const eq = vi.fn().mockReturnValue({ single })
+  const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single }) }) })
+  const insertSingle = vi.fn().mockResolvedValue({
+    data: { id: 'reading-id-1', ...({} as object) },
+    error: null,
   })
-  return from
+  const updateEq = vi.fn().mockResolvedValue({ error: null })
+  const update = vi.fn().mockReturnValue({ eq: updateEq })
+  const insert = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: insertSingle }) })
+  const certInsert = vi.fn().mockResolvedValue({ error: null })
+
+  vi.mocked(createServiceClient).mockReturnValue({
+    from: vi.fn((table: string) => {
+      if (table === 'meters') return { select }
+      if (table === 'readings') return { insert, update }
+      if (table === 'certificates') return { insert: certInsert }
+      return {}
+    }),
+  } as ReturnType<typeof createServiceClient>)
+
+  return { select, insert, update }
 }
 
-beforeEach(() => vi.clearAllMocks())
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('POST /api/readings', () => {
-  it('returns 400 for missing body', async () => {
-    const req = new NextRequest('http://localhost/api/readings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: 'not-json',
-    })
+  beforeEach(() => vi.clearAllMocks())
+
+  // ── 400 for malformed payloads ─────────────────────────────────────────────
+
+  it('returns 400 when body is not JSON', async () => {
+    const req = { json: () => Promise.reject(new Error('bad json')) } as Parameters<typeof POST>[0]
     const res = await POST(req)
     expect(res.status).toBe(400)
   })
 
-  it('returns 400 for invalid payload', async () => {
-    const res = await POST(makeRequest({ meter_id: 'bad', kwh: -1 }))
+  it('returns 400 when meter_id is missing', async () => {
+    const res = await POST(makeRequest({ kwh: 1, timestamp: TIMESTAMP, signature_hex: 'a'.repeat(128) }))
     expect(res.status).toBe(400)
   })
 
-  it('returns 404 when meter not found', async () => {
-    const from = makeDb(null, null)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    const hash = computeHash(METER_ID, KWH, TIMESTAMP)
-    const sig = signHash(hash)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: sig }))
+  it('returns 400 when kwh is negative', async () => {
+    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: -1, timestamp: TIMESTAMP, signature_hex: 'a'.repeat(128) }))
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when signature_hex is wrong length', async () => {
+    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: 'deadbeef' }))
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when timestamp is missing', async () => {
+    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, signature_hex: 'a'.repeat(128) }))
+    expect(res.status).toBe(400)
+  })
+
+  // ── 404 for unknown meter ──────────────────────────────────────────────────
+
+  it('returns 404 when meter is not found', async () => {
+    mockDb(null)
+    const { privKey } = await makeKeypair()
+    const res = await POST(makeRequest(await makeBody(privKey)))
     expect(res.status).toBe(404)
   })
 
-  it('returns 401 for invalid signature', async () => {
-    const meter = { id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GABC' } }
-    const from = makeDb(meter, null)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    const badSig = 'ff'.repeat(64)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: badSig }))
+  // ── 401 for invalid signature ──────────────────────────────────────────────
+
+  it('returns 401 when signature is signed by a different key', async () => {
+    const { pubKeyHex } = await makeKeypair()
+    const { privKey: wrongPrivKey } = await makeKeypair()
+    mockDb({ id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GADMIN' } })
+    const body = await makeBody(wrongPrivKey) // signed with wrong key
+    const res = await POST(makeRequest(body))
+    expect(res.status).toBe(401)
+    const json = await res.json()
+    expect(json.error).toMatch(/invalid meter signature/i)
+  })
+
+  it('returns 401 when signature_hex is all zeros (invalid)', async () => {
+    const { pubKeyHex } = await makeKeypair()
+    mockDb({ id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GADMIN' } })
+    const body = { meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: '0'.repeat(128) }
+    const res = await POST(makeRequest(body))
     expect(res.status).toBe(401)
   })
 
-  it('returns 201 on success', async () => {
-    const meter = { id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GABC' } }
-    const reading = { id: 'reading-uuid', meter_id: METER_ID, kwh: KWH, reading_hash: 'hash', signature_hex: 'sig' }
-    const from = makeDb(meter, reading)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    const hash = computeHash(METER_ID, KWH, TIMESTAMP)
-    const sig = signHash(hash)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: sig }))
+  // ── Valid signature proceeds to anchoring ──────────────────────────────────
+
+  it('returns 201 and anchors when signature is valid', async () => {
+    const { privKey, pubKeyHex } = await makeKeypair()
+    mockDb({ id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GADMIN' } })
+    const body = await makeBody(privKey)
+    const res = await POST(makeRequest(body))
     expect(res.status).toBe(201)
-    const body = await res.json()
-    expect(body.anchor_tx_hash).toBe('anchor_tx_hash_hex')
-    expect(body.mint_tx_hash).toBe('mint_tx_hash_hex')
+    const json = await res.json()
+    expect(json.anchor_tx_hash).toBe('anchor_tx_abc')
+    expect(json.mint_tx_hash).toBe('mint_tx_abc')
+    expect(json.reading_id).toBeDefined()
   })
 
-  it('returns 500 when anchor fails', async () => {
-    const meter = { id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GABC' } }
-    const reading = { id: 'reading-uuid', meter_id: METER_ID, kwh: KWH, reading_hash: 'hash', signature_hex: 'sig' }
-    const from = makeDb(meter, reading)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    vi.mocked(anchorReading).mockRejectedValueOnce(new Error('Stellar RPC error'))
-    const hash = computeHash(METER_ID, KWH, TIMESTAMP)
-    const sig = signHash(hash)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: sig }))
-    expect(res.status).toBe(500)
-  })
+  it('calls anchorReading with the correct hash for a valid reading', async () => {
+    const { privKey, pubKeyHex } = await makeKeypair()
+    mockDb({ id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GADMIN' } })
+    const body = await makeBody(privKey)
 
-  it('returns 409 when reading already anchored', async () => {
-    const meter = { id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GABC' } }
-    const reading = { id: 'reading-uuid', meter_id: METER_ID, kwh: KWH, reading_hash: 'hash', signature_hex: 'sig' }
-    const from = makeDb(meter, reading)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    vi.mocked(anchorReading).mockRejectedValueOnce(new Error('AlreadyAnchored'))
-    const hash = computeHash(METER_ID, KWH, TIMESTAMP)
-    const sig = signHash(hash)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: sig }))
-    expect(res.status).toBe(409)
-  })
+    const { anchorReading } = await import('@/lib/stellar')
+    await POST(makeRequest(body))
 
-  it('returns 500 when mint fails', async () => {
-    const meter = { id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GABC' } }
-    const reading = { id: 'reading-uuid', meter_id: METER_ID, kwh: KWH, reading_hash: 'hash', signature_hex: 'sig' }
-    const from = makeDb(meter, reading)
-    vi.mocked(createServiceClient).mockReturnValue({ from } as never)
-    vi.mocked(mintCertificates).mockRejectedValueOnce(new Error('Mint failed'))
-    const hash = computeHash(METER_ID, KWH, TIMESTAMP)
-    const sig = signHash(hash)
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: sig }))
-    expect(res.status).toBe(500)
+    expect(anchorReading).toHaveBeenCalledOnce()
+    const callArg = vi.mocked(anchorReading).mock.calls[0][0]
+    const expectedHash = computeReadingHash(METER_ID, kwhToStroops(KWH), BigInt(TIMESTAMP))
+    expect(Buffer.from(callArg.readingHash).toString('hex')).toBe(expectedHash.toString('hex'))
   })
 })

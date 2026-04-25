@@ -66,7 +66,15 @@ export default function VerifyPage() {
             Certificate Verifier
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            No login required. Enter a certificate ID, reading hash, or transaction hash.
+            No login required. Enter a certificate ID, reading hash, or transaction hash.{' '}
+            <a
+              href="https://github.com/AnnabelJoe/solarproof/blob/main/docs/verify.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-gray-700 dark:hover:text-gray-300"
+            >
+              How to use this page
+            </a>
           </p>
         </div>
       </header>
@@ -246,7 +254,7 @@ function Row({
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`${label}: ${value} (opens in new tab)`}
-            className={`flex items-center gap-1 break-all text-blue-600 hover:underline dark:text-blue-400 ${
+            className={`flex items-center gap-1 break-all text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 rounded dark:text-blue-400 dark:focus:ring-yellow-500 dark:focus:ring-offset-gray-900 ${
               mono ? 'font-mono text-xs' : ''
             }`}
           >
