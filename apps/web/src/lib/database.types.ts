@@ -26,6 +26,13 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['readings']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['readings']['Insert']>
       }
+      idempotency_keys: {
+        Row: {
+          nonce: string; reading_id: string; response: Json; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['idempotency_keys']['Row'], 'created_at'>
+        Update: Partial<Database['public']['Tables']['idempotency_keys']['Insert']>
+      }
       certificates: {
         Row: {
           id: string; cooperative_id: string; reading_id: string
@@ -36,14 +43,21 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['certificates']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['certificates']['Insert']>
       }
-      audit_log: {
+      webhook_endpoints: {
         Row: {
-          id: string; operator_id: string; action: string
-          resource_id: string | null; ip_address: string | null
-          metadata: Record<string, unknown> | null; created_at: string
+          id: string; cooperative_id: string; url: string; secret: string
+          events: string[]; active: boolean; created_at: string
         }
-        Insert: Omit<Database['public']['Tables']['audit_log']['Row'], 'id' | 'created_at'>
-        Update: never
+        Insert: Omit<Database['public']['Tables']['webhook_endpoints']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_endpoints']['Insert']>
+      }
+      webhook_logs: {
+        Row: {
+          id: string; endpoint_id: string; event: string; payload: Json
+          status: string; attempts: number; response_status: number | null; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['webhook_logs']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_logs']['Insert']>
       }
     }
     Views: Record<string, never>

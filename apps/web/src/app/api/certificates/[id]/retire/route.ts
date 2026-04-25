@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { retireCertificate } from '@/lib/stellar'
-import { auditLog } from '@/lib/audit'
+import { fireWebhook } from '@/lib/webhooks'
 
 const RetireSchema = z.object({
   wallet_address: z.string().min(1),
@@ -75,11 +75,10 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to update certificate status' }, { status: 500 })
   }
 
-  await auditLog(req, {
-    operator_id: wallet_address,
-    action: 'certificate.retire',
-    resource_id: id,
-    metadata: { retire_tx_hash: retireTxHash, kwh: cert.kwh },
+  void fireWebhook(updated.cooperative_id, 'retire', {
+    certificate_id: updated.id,
+    retired_by: updated.retired_by,
+    retire_tx_hash: retireTxHash,
   })
 
   return NextResponse.json({
