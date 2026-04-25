@@ -1,0 +1,99 @@
+'use client'
+
+import { useRef, useState } from 'react'
+import { X, Leaf } from 'lucide-react'
+
+interface Props {
+  certificateId: string
+  kwh: number
+  onConfirm: (reason: string) => Promise<void>
+  onClose: () => void
+}
+
+export function RetireModal({ certificateId, kwh, onConfirm, onClose }: Props) {
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      await onConfirm(reason)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="retire-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Leaf className="h-5 w-5 text-green-500" aria-hidden="true" />
+            <h2 id="retire-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              Retire certificate
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+          You are about to permanently retire certificate{' '}
+          <span className="font-mono text-xs">{certificateId.slice(0, 8)}…</span> ({kwh} kWh).
+          This action cannot be undone.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label
+              htmlFor="retire-reason"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Retirement reason <span className="text-gray-400">(optional)</span>
+            </label>
+            <textarea
+              id="retire-reason"
+              ref={inputRef}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. Offset Q1 2026 carbon footprint"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
+            >
+              {submitting ? 'Retiring…' : 'Confirm retirement'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}

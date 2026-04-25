@@ -106,6 +106,7 @@ impl AuditRegistry {
         env.storage().instance().set(&DataKey::Version, &soroban_sdk::String::from_str(&env, VERSION));
     }
 
+    /// Returns the contract version string (e.g. `"1.0.0"`).
     pub fn get_version(env: Env) -> soroban_sdk::String {
         env.storage().instance()
             .get(&DataKey::Version)
@@ -113,6 +114,15 @@ impl AuditRegistry {
     }
 
     /// Migrate state schema to a new version. Admin-only.
+    ///
+    /// # Arguments
+    /// * `new_version` — version string to store (e.g. `"2.0.0"`).
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn migrate(env: Env, new_version: soroban_sdk::String) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
@@ -170,26 +180,35 @@ impl AuditRegistry {
         let count: u32 = env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalAnchors, &(count + 1));
 
-        env.events().publish((symbol_short!("anchor"),), reading_hash);
+        env.events().publish(
+            (symbol_short!("anchor"),),
+            (reading_hash, env.ledger().sequence(), env.ledger().timestamp()),
+        );
         Ok(())
     }
 
     /// Returns the `AuditAnchor` for `reading_hash`, or `None` if not anchored.
+    ///
+    /// # Arguments
+    /// * `reading_hash` — 32-byte SHA-256 hash to look up.
     pub fn verify(env: Env, reading_hash: BytesN<32>) -> Option<AuditAnchor> {
         env.storage().persistent().get(&DataKey::Anchor(reading_hash))
     }
 
-    /// Returns `true` if `reading_hash` has been anchored.
+    /// Returns `true` if `reading_hash` has been anchored, `false` otherwise.
     pub fn is_anchored(env: Env, reading_hash: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::Anchor(reading_hash))
     }
 
-    /// Returns the total number of anchored readings.
+    /// Returns the total number of reading hashes anchored so far.
     pub fn total_anchors(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0)
     }
 
     /// Returns the admin address.
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
     pub fn admin(env: Env) -> soroban_sdk::Address {
         env.storage().instance().get(&DataKey::Admin).expect("not initialized")
     }
