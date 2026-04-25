@@ -76,7 +76,13 @@ stellar contract invoke --id $GOV_ID --source deployer --network testnet \
 
 Update [docs/deployments.md](deployments.md) with the three contract IDs, then set them in your environment:
 
+All contract addresses and network settings are read from environment variables. Copy `.env.example` to `.env.local` and fill in the values from the deploy steps above.
+
+### Testnet
+
 ```env
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+NEXT_PUBLIC_STELLAR_RPC_URL=https://soroban-testnet.stellar.org
 NEXT_PUBLIC_ENERGY_TOKEN_ID=<TOKEN_ID>
 NEXT_PUBLIC_AUDIT_REGISTRY_ID=<REGISTRY_ID>
 NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID=<GOV_ID>

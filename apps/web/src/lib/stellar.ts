@@ -95,7 +95,7 @@ const BACKOFF_MS = [1_000, 2_000, 4_000]
 const MAX_RETRIES = 3
 
 function getServer() {
-  return new SorobanRpc.Server(RPC_URL)
+  return new SorobanRpc.Server(env.NEXT_PUBLIC_STELLAR_RPC_URL)
 }
 
 async function submitTx(
