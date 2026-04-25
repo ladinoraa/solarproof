@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verify } from '@noble/ed25519'
+import { verifyAsync } from '@noble/ed25519'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     .select('id, pubkey_hex, cooperative_id, cooperatives(admin_address)')
     .eq('id', meter_id)
     .eq('active', true)
-    .single()
+    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })

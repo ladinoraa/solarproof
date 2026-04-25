@@ -9,6 +9,7 @@ import {
   scValToNative,
   Address,
 } from '@stellar/stellar-sdk'
+import * as SorobanRpc from '@stellar/stellar-sdk/rpc'
 
 /** RPC endpoints and network passphrases for each supported Stellar network. */
 export const NETWORKS = {
