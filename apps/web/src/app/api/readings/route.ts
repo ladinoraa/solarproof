@@ -23,11 +23,14 @@ function isAlreadyAnchoredError(err: unknown): boolean {
   return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
 }
 
+const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
   signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
+  nonce: z.string().min(1).max(128).optional(),
 })
 
 /**
@@ -45,8 +48,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { meter_id, kwh, timestamp, signature_hex } = parsed.data
+  const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
   const db = createServiceClient()
+
+  // Idempotency check: return cached response if nonce was seen within 24 h
+  if (nonce) {
+    const { data: existing } = await db
+      .from('idempotency_keys')
+      .select('response, created_at')
+      .eq('nonce', nonce)
+      .single()
+
+    if (existing) {
+      const age = Date.now() - new Date(existing.created_at).getTime()
+      if (age < NONCE_TTL_MS) {
+        return NextResponse.json(existing.response, { status: 200 })
+      }
+      // Expired — delete and allow re-processing
+      await db.from('idempotency_keys').delete().eq('nonce', nonce)
+    }
+  }
 
   // Fetch meter + cooperative
   const { data: meter } = await db
