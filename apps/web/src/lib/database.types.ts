@@ -43,6 +43,22 @@ export interface Database {
         Insert: Omit<Database['public']['Tables']['certificates']['Row'], 'id'>
         Update: Partial<Database['public']['Tables']['certificates']['Insert']>
       }
+      webhook_endpoints: {
+        Row: {
+          id: string; cooperative_id: string; url: string; secret: string
+          events: string[]; active: boolean; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['webhook_endpoints']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_endpoints']['Insert']>
+      }
+      webhook_logs: {
+        Row: {
+          id: string; endpoint_id: string; event: string; payload: Json
+          status: string; attempts: number; response_status: number | null; created_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['webhook_logs']['Row'], 'id' | 'created_at'>
+        Update: Partial<Database['public']['Tables']['webhook_logs']['Insert']>
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
