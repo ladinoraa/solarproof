@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Sun, Moon, Menu, X } from 'lucide-react'
+import { Sun, Moon, Menu, X, Wallet, LogOut } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useRef, useState } from 'react'
+import { useWallet } from '@/hooks/useWallet'
 
 const links = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -20,6 +21,7 @@ export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const { address, connected, loading: walletLoading, connect, disconnect } = useWallet()
 
   // Close menu on route change
   useEffect(() => {
@@ -112,8 +114,32 @@ export function Navbar() {
           })}
         </div>
 
-        {/* Right side: theme toggle + hamburger */}
+        {/* Right side: theme toggle + wallet + hamburger */}
         <div className="flex items-center gap-2">
+          {/* Wallet connect */}
+          {!walletLoading && (
+            connected && address ? (
+              <button
+                onClick={disconnect}
+                title={address}
+                aria-label={`Disconnect wallet ${address.slice(0, 6)}…`}
+                className="hidden items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 md:flex"
+              >
+                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                {address.slice(0, 4)}…{address.slice(-4)}
+                <LogOut className="h-3 w-3 ml-0.5 text-gray-400" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                onClick={() => connect().catch(() => {})}
+                aria-label="Connect Freighter wallet"
+                className="hidden items-center gap-1.5 rounded-md bg-yellow-400 px-3 py-1.5 text-xs font-medium text-gray-900 transition-colors hover:bg-yellow-500 md:flex"
+              >
+                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                Connect wallet
+              </button>
+            )
+          )}
           {/* Dark mode toggle */}
           <button
             onClick={toggleTheme}
