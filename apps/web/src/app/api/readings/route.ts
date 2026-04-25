@@ -4,13 +4,32 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
-import { enqueue } from '@/lib/queue'
+import { invalidateCert } from '@/lib/cache'
+import { fireWebhook } from '@/lib/webhooks'
+
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  try {
+    return JSON.stringify(err)
+  } catch {
+    return 'Unknown error'
+  }
+}
+
+function isAlreadyAnchoredError(err: unknown): boolean {
+  const message = extractErrorMessage(err).toLowerCase()
+  return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
+}
+
+const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
   signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
+  nonce: z.string().min(1).max(128).optional(),
 })
 
 /**
@@ -29,8 +48,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { meter_id, kwh, timestamp, signature_hex } = parsed.data
+  const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
   const db = createServiceClient()
+
+  // Idempotency check: return cached response if nonce was seen within 24 h
+  if (nonce) {
+    const { data: existing } = await db
+      .from('idempotency_keys')
+      .select('response, created_at')
+      .eq('nonce', nonce)
+      .single()
+
+    if (existing) {
+      const age = Date.now() - new Date(existing.created_at).getTime()
+      if (age < NONCE_TTL_MS) {
+        return NextResponse.json(existing.response, { status: 200 })
+      }
+      // Expired — delete and allow re-processing
+      await db.from('idempotency_keys').delete().eq('nonce', nonce)
+    }
+  }
 
   // Fetch meter + cooperative
   const { data: meter } = await db
@@ -78,19 +115,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
-  // Enqueue Stellar anchor + mint — returns immediately
-  const cooperative = meter.cooperatives as { admin_address: string } | null
-  const correlationId = crypto.randomUUID()
-  const jobId = await enqueue('anchor_and_mint', {
-    readingId: reading.id,
-    readingHashHex: readingHash.toString('hex'),
-    recipientAddress: cooperative?.admin_address ?? '',
-    kwh,
-    correlationId,
-  })
+  // Anchor on-chain (hash only — full payload already in Supabase)
+  let anchorTxHash: string
+  try {
+    anchorTxHash = await anchorReading({ readingHash })
+    await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
+    void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
+  } catch (err) {
+    if (isAlreadyAnchoredError(err)) {
+      return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
+    }
+    const message = extractErrorMessage(err)
+    return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
+  }
 
-  return NextResponse.json(
-    { reading_id: reading.id, job_id: jobId, status_url: `/api/jobs/${jobId}` },
-    { status: 202 }
-  )
+  // Mint certificates
+  try {
+    const cooperative = meter.cooperatives as { admin_address: string } | null
+    const recipient = cooperative?.admin_address
+    if (!recipient) throw new Error('No cooperative admin address')
+
+    const mintTxHash = await mintCertificates(recipient, kwh)
+    await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', reading.id)
+    await db.from('certificates').insert({
+      cooperative_id: meter.cooperative_id,
+      reading_id: reading.id,
+      reading_hash: readingHash.toString('hex'),
+      anchor_tx_hash: anchorTxHash,
+      mint_tx_hash: mintTxHash,
+      kwh,
+      issued_at: new Date().toISOString(),
+      retired: false,
+    })
+
+    // Invalidate any stale cache entries for this certificate
+    await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
+
+    void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
+
+    return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Mint failed'
+    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash }, { status: 500 })
+  }
 }
