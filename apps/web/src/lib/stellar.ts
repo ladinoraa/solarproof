@@ -90,6 +90,10 @@ async function rpcCall<T>(fn: () => Promise<T>, correlationId: string): Promise<
   }
 }
 
+/** Delays that grow as 1 s, 2 s, 4 s for attempts 1, 2, 3. */
+const BACKOFF_MS = [1_000, 2_000, 4_000]
+const MAX_RETRIES = 3
+
 function getServer() {
   return new SorobanRpc.Server(RPC_URL)
 }
@@ -122,10 +126,10 @@ export async function anchorReading(params: {
   const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
 
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
-    .setTimeout(30)
-    .build()
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
+      .setTimeout(30)
+      .build()
 
   return submitTx(tx, minter, correlationId)
 }
@@ -141,10 +145,10 @@ export async function retireCertificate(
   const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
 
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call('retire', addressToScVal(ownerAddress), amountToScVal(kwhToStroops(kwh))))
-    .setTimeout(30)
-    .build()
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('retire', addressToScVal(ownerAddress), amountToScVal(kwhToStroops(kwh))))
+      .setTimeout(30)
+      .build()
 
   return submitTx(tx, minter, correlationId)
 }
@@ -160,10 +164,10 @@ export async function mintCertificates(
   const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_ENERGY_TOKEN_ID)
 
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call('mint', addressToScVal(recipientAddress), amountToScVal(kwhToStroops(kwh))))
-    .setTimeout(30)
-    .build()
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(contract.call('mint', addressToScVal(recipientAddress), amountToScVal(kwhToStroops(kwh))))
+      .setTimeout(30)
+      .build()
 
   return submitTx(tx, minter, correlationId)
 }
