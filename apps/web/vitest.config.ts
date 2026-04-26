@@ -7,9 +7,17 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['src/test-setup.ts'],
     environmentMatchGlobs: [
       ['src/__tests__/components/**', 'jsdom'],
     ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      all: true,
+      include: ['src/**/*.{ts,tsx}'],
+    },
   },
   resolve: {
     alias: {

@@ -81,11 +81,11 @@ describe('Ed25519 signature verification', () => {
     await expect(ed.verifyAsync(shortSig, hash, pubKey)).rejects.toThrow()
   })
 
-  it('malformed public key (wrong length) throws or returns false', async () => {
+  it('malformed public key (wrong length) returns false', async () => {
     const { privKey } = await makeKeypair()
     const { sig, hash } = await signReading(privKey, METER_ID, KWH, TIMESTAMP)
     const badPubKey = new Uint8Array(16) // too short
-    await expect(ed.verifyAsync(sig, hash, badPubKey)).rejects.toThrow()
+    await expect(ed.verifyAsync(sig, hash, badPubKey)).resolves.toBe(false)
   })
 
   it('computeReadingHash is deterministic', () => {

@@ -8,9 +8,11 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf .next",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "playwright test",
+    "clean": "rm -rf .next"
   },
   "dependencies": {
     "@noble/ed25519": "2.1.0",
