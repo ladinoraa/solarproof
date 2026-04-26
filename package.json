@@ -10,6 +10,7 @@
     "type-check": "turbo type-check",
     "test": "turbo test",
     "test:coverage": "pnpm --filter @solarproof/web vitest run --coverage",
+    "e2e": "pnpm --filter @solarproof/web exec playwright test",
     "integration:test": "node scripts/local-soroban-integration.mjs",
     "clean": "turbo clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"

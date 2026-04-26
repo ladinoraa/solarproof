@@ -91,6 +91,8 @@ pub enum DataKey {
     PendingUpgrade,
     /// Contract version string.
     Version,
+    /// Execution timelock in ledgers (set by set_execution_timelock).
+    ExecuteTimelock,
 }
 
 /// Pending contract upgrade proposal.
@@ -107,10 +109,6 @@ pub struct UpgradeProposal {
 const UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280;
 /// 24 hours expressed in ledgers (10-second ledger time).
 const EXECUTE_TIMELOCK_LEDGERS: u32 = 8_640;
-
-const DEFAULT_QUORUM_BPS: u32 = 1_000;
-const DEFAULT_THRESHOLD_BPS: u32 = 5_100;
-const VERSION: &str = "1.0.0";
 
 const DEFAULT_QUORUM_BPS: u32 = 1_000;    // 10%
 const DEFAULT_THRESHOLD_BPS: u32 = 5_100; // 51%
@@ -484,32 +482,6 @@ impl CommunityGovernance {
     pub fn proposal_count(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0)
     }
-
-    /// Returns the current quorum in basis points.
-    pub fn get_quorum_bps(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::QuorumBps).unwrap_or(DEFAULT_QUORUM_BPS)
-    }
-
-    /// Returns the current approval threshold in basis points.
-    pub fn get_threshold_bps(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::ThresholdBps).unwrap_or(DEFAULT_THRESHOLD_BPS)
-    }
-
-    /// Update the quorum in basis points. Admin-only.
-    pub fn set_quorum_bps(env: Env, _admin: Address, bps: u32) {
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        stored_admin.require_auth();
-        assert!(bps >= 1 && bps <= 10_000, "quorum_bps must be 1-10000");
-        env.storage().instance().set(&DataKey::QuorumBps, &bps);
-    }
-
-    /// Update the approval threshold in basis points. Admin-only.
-    pub fn set_threshold_bps(env: Env, _admin: Address, bps: u32) {
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
-        stored_admin.require_auth();
-        assert!(bps >= 1 && bps <= 10_000, "threshold_bps must be 1-10000");
-        env.storage().instance().set(&DataKey::ThresholdBps, &bps);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -644,7 +616,7 @@ mod tests {
         env.mock_all_auths();
         let id = env.register(CommunityGovernance, ());
         let client = CommunityGovernanceClient::new(&env, &id);
-        client.initialize(&Address::generate(&env), &1100_u32);
+        client.initialize(&Address::generate(&env), &1_000_u32, &1_100_u32);
 
         let proposer = Address::generate(&env);
         let pid = client.propose(&proposer, &String::from_str(&env, "Big"), &String::from_str(&env, "Vote"));
@@ -765,5 +737,110 @@ mod tests {
     fn test_set_execution_timelock_zero_panics() {
         let (_env, admin, client) = setup();
         client.set_execution_timelock(&admin, &0_u32);
+    }
+
+    // ── proposal lifecycle: quorum / rejection / expiry ───────────────────────
+
+    /// A proposal with only no-votes is Rejected and cannot be executed.
+    #[test]
+    #[should_panic(expected = "proposal not passed")]
+    fn test_quorum_not_met_rejected_cannot_execute() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        // Cast only no-votes — threshold not met
+        client.vote(&Address::generate(&env), &id, &false);
+        client.vote(&Address::generate(&env), &id, &false);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Rejected);
+        // Attempting to execute a Rejected proposal must panic
+        client.execute(&id);
+    }
+
+    /// A proposal with no votes at all is Expired and cannot be executed.
+    #[test]
+    #[should_panic(expected = "proposal not passed")]
+    fn test_expired_proposal_cannot_execute() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Expired);
+        // Attempting to execute an Expired proposal must panic
+        client.execute(&id);
+    }
+
+    /// Voting after the voting period has ended must panic.
+    #[test]
+    #[should_panic(expected = "voting period ended")]
+    fn test_vote_after_period_panics() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.vote(&Address::generate(&env), &id, &true);
+    }
+
+    /// Finalising a proposal before its voting period ends must panic.
+    #[test]
+    #[should_panic(expected = "voting still open")]
+    fn test_finalize_before_period_ends_panics() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        client.finalize(&id); // voting period not over yet
+    }
+
+    /// Finalising an already-finalised proposal must panic.
+    #[test]
+    #[should_panic(expected = "already finalized")]
+    fn test_finalize_twice_panics() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        client.finalize(&id); // second call must panic
+    }
+
+    /// proposal_count increments correctly across multiple proposals.
+    #[test]
+    fn test_proposal_count() {
+        let (env, _admin, client) = setup();
+        assert_eq!(client.proposal_count(), 0);
+        let p = Address::generate(&env);
+        client.propose(&p, &String::from_str(&env, "A"), &String::from_str(&env, "D"));
+        client.propose(&p, &String::from_str(&env, "B"), &String::from_str(&env, "D"));
+        assert_eq!(client.proposal_count(), 2);
+    }
+
+    /// get_proposal returns None for a non-existent ID.
+    #[test]
+    fn test_get_proposal_nonexistent_returns_none() {
+        let (_env, _admin, client) = setup();
+        assert!(client.get_proposal(&99_u32).is_none());
+    }
+
+    /// Mixed yes/no votes: majority no → Rejected.
+    #[test]
+    fn test_majority_no_rejected() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "T"), &String::from_str(&env, "D"));
+        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &false);
+        client.vote(&Address::generate(&env), &id, &false);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Rejected);
+    }
+
+    /// get_version returns the expected version string.
+    #[test]
+    fn test_get_version() {
+        let (env, _admin, client) = setup();
+        assert_eq!(client.get_version(), String::from_str(&env, "1.0.0"));
     }
 }
