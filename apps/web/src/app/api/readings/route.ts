@@ -4,8 +4,51 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
+import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { invalidateCert } from '@/lib/cache'
 import { fireWebhook } from '@/lib/webhooks'
+import { logger } from '@/lib/logger'
+
+const MAX_PAGE_SIZE = 100
+
+/**
+ * GET /api/v1/readings
+ *
+ * Cursor-based pagination via `cursor` (ISO timestamp) and `limit` (max 100).
+ * Returns `{ data, next_cursor, total }`.
+ */
+export async function GET(req: NextRequest) {
+  const { searchParams } = req.nextUrl
+  const limit = Math.min(Number(searchParams.get('limit') ?? 20), MAX_PAGE_SIZE)
+  const cursor = searchParams.get('cursor') // ISO timestamp of last seen row
+
+  const db = createServiceClient()
+
+  // Total count (for UI pagination)
+  const { count } = await db
+    .from('readings')
+    .select('id', { count: 'exact', head: true })
+
+  let query = db
+    .from('readings')
+    .select('id, meter_id, kwh, timestamp, reading_hash, anchored, minted, anchor_tx_hash, mint_tx_hash')
+    .order('timestamp', { ascending: false })
+    .limit(limit + 1) // fetch one extra to determine if there's a next page
+
+  if (cursor) {
+    query = query.lt('timestamp', cursor)
+  }
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const rows = data ?? []
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const next_cursor = hasMore ? page[page.length - 1].timestamp : null
+
+  return NextResponse.json({ data: page, next_cursor, total: count ?? 0 })
+}
 
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -42,9 +85,13 @@ const ReadingSchema = z.object({
  * Poll GET /api/jobs/[job_id] for completion status.
  */
 export async function POST(req: NextRequest) {
+  const correlationId = req.headers.get('x-correlation-id') ?? undefined
+  const log = correlationId ? logger.withCorrelationId(correlationId) : logger
+
   const body = await req.json().catch(() => null)
   const parsed = ReadingSchema.safeParse(body)
   if (!parsed.success) {
+    log.warn('readings.post.invalid_body', { errors: parsed.error.flatten() })
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
@@ -78,6 +125,7 @@ export async function POST(req: NextRequest) {
     .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
+    log.warn('readings.post.meter_not_found', { meter_id })
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
   }
 
@@ -86,15 +134,14 @@ export async function POST(req: NextRequest) {
   const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))
 
   // Verify Ed25519 signature
-  const sigValid = await Promise.resolve().then(() =>
-    verify(
-      Buffer.from(signature_hex, 'hex'),
-      readingHash,
-      Buffer.from(meter.pubkey_hex, 'hex')
-    )
+  const sigValid = await verifyAsync(
+    Buffer.from(signature_hex, 'hex'),
+    readingHash,
+    Buffer.from(meter.pubkey_hex, 'hex')
   ).catch(() => false)
 
   if (!sigValid) {
+    log.warn('readings.post.invalid_signature', { meter_id })
     return NextResponse.json({ error: 'Invalid meter signature' }, { status: 401 })
   }
 
@@ -114,6 +161,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (readingErr || !reading) {
+    log.error('readings.post.db_insert_failed', { meter_id, error: readingErr?.message })
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
@@ -122,12 +170,15 @@ export async function POST(req: NextRequest) {
   try {
     anchorTxHash = await anchorReading({ readingHash })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
+    log.info('readings.post.anchored', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
     void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
   } catch (err) {
     if (isAlreadyAnchoredError(err)) {
+      log.warn('readings.post.already_anchored', { reading_id: reading.id })
       return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
     }
     const message = extractErrorMessage(err)
+    log.error('readings.post.anchor_failed', { reading_id: reading.id, error: message })
     return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
   }
 
@@ -153,11 +204,13 @@ export async function POST(req: NextRequest) {
     // Invalidate any stale cache entries for this certificate
     await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
 
+    log.info('readings.post.minted', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
     void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Mint failed'
+    log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
     return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash }, { status: 500 })
   }
 }
