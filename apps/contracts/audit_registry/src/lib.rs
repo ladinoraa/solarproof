@@ -238,6 +238,8 @@ mod tests {
         BytesN::from_array(env, &[1u8; 32])
     }
 
+    // ── anchor + verify ──────────────────────────────────────────────────────
+
     #[test]
     fn test_anchor_and_verify() {
         let (env, api_signer, client) = setup();
@@ -250,11 +252,16 @@ mod tests {
     }
 
     #[test]
-    fn test_unauthorized_caller_rejected() {
-        let (env, _api_signer, client) = setup();
-        let attacker = soroban_sdk::Address::generate(&env);
-        assert_eq!(client.anchor(&attacker, &hash(&env)), Err(Error::Unauthorized));
+    fn test_anchor_records_ledger_sequence() {
+        let (env, api_signer, client) = setup();
+        let h = hash(&env);
+        client.anchor(&api_signer, &h).unwrap();
+        let anchor = client.verify(&h).unwrap();
+        // Default test env starts at ledger 0; sequence must be a valid u32.
+        let _ = anchor.anchored_at_ledger; // just assert it's accessible
     }
+
+    // ── deduplication ────────────────────────────────────────────────────────
 
     #[test]
     fn test_duplicate_anchor_rejected() {
@@ -265,6 +272,50 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_anchor_does_not_increment_total() {
+        let (env, api_signer, client) = setup();
+        let h = hash(&env);
+        client.anchor(&api_signer, &h).unwrap();
+        let _ = client.anchor(&api_signer, &h); // second call returns Err
+        assert_eq!(client.total_anchors(), 1);
+    }
+
+    #[test]
+    fn test_different_hashes_are_independent() {
+        let (env, api_signer, client) = setup();
+        let h1 = BytesN::from_array(&env, &[0xAAu8; 32]);
+        let h2 = BytesN::from_array(&env, &[0xBBu8; 32]);
+        client.anchor(&api_signer, &h1).unwrap();
+        client.anchor(&api_signer, &h2).unwrap();
+        assert!(client.is_anchored(&h1));
+        assert!(client.is_anchored(&h2));
+        assert_eq!(client.total_anchors(), 2);
+    }
+
+    // ── unauthorized access ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_unauthorized_caller_rejected() {
+        let (env, _api_signer, client) = setup();
+        let attacker = soroban_sdk::Address::generate(&env);
+        assert_eq!(client.anchor(&attacker, &hash(&env)), Err(Error::Unauthorized));
+    }
+
+    #[test]
+    fn test_old_signer_rejected_after_rotation() {
+        let (env, old_signer, client) = setup();
+        let new_signer = soroban_sdk::Address::generate(&env);
+        client.set_api_signer(&new_signer);
+        // old signer must now be rejected
+        assert_eq!(
+            client.anchor(&old_signer, &hash(&env)),
+            Err(Error::Unauthorized)
+        );
+    }
+
+    // ── query functions ──────────────────────────────────────────────────────
+
+    #[test]
     fn test_not_anchored_returns_none() {
         let (env, _api_signer, client) = setup();
         let h = BytesN::from_array(&env, &[9u8; 32]);
@@ -273,13 +324,69 @@ mod tests {
     }
 
     #[test]
+    fn test_total_anchors_starts_at_zero() {
+        let (env, _api_signer, client) = setup();
+        // Before any anchor call total must be 0
+        assert_eq!(client.total_anchors(), 0);
+        // Querying a non-existent hash must not change the count
+        let _ = client.verify(&BytesN::from_array(&env, &[0u8; 32]));
+        assert_eq!(client.total_anchors(), 0);
+    }
+
+    #[test]
     fn test_total_anchors_increments() {
         let (env, api_signer, client) = setup();
         for i in 0u8..5 {
-            client.anchor(&api_signer, &BytesN::from_array(&env, &[i; 32]));
+            client.anchor(&api_signer, &BytesN::from_array(&env, &[i; 32])).unwrap();
         }
         assert_eq!(client.total_anchors(), 5);
     }
+
+    #[test]
+    fn test_admin_query() {
+        let (env, _api_signer, client) = setup();
+        // admin() must return a valid address (not panic)
+        let _admin = client.admin();
+        let _ = &env; // suppress unused warning
+    }
+
+    #[test]
+    fn test_api_signer_query() {
+        let (env, api_signer, client) = setup();
+        assert_eq!(client.api_signer(), api_signer);
+    }
+
+    // ── large payload ────────────────────────────────────────────────────────
+
+    /// Anchor 50 distinct hashes to exercise storage under load.
+    #[test]
+    fn test_large_number_of_anchors() {
+        let (env, api_signer, client) = setup();
+        let count: u8 = 50;
+        for i in 0..count {
+            let h = BytesN::from_array(&env, &[i; 32]);
+            client.anchor(&api_signer, &h).unwrap();
+        }
+        assert_eq!(client.total_anchors(), u32::from(count));
+        // Spot-check first and last
+        assert!(client.is_anchored(&BytesN::from_array(&env, &[0u8; 32])));
+        assert!(client.is_anchored(&BytesN::from_array(&env, &[count - 1; 32])));
+    }
+
+    /// All-zeros and all-ones hashes are valid and independent.
+    #[test]
+    fn test_boundary_hash_values() {
+        let (env, api_signer, client) = setup();
+        let all_zeros = BytesN::from_array(&env, &[0x00u8; 32]);
+        let all_ones = BytesN::from_array(&env, &[0xFFu8; 32]);
+        client.anchor(&api_signer, &all_zeros).unwrap();
+        client.anchor(&api_signer, &all_ones).unwrap();
+        assert!(client.is_anchored(&all_zeros));
+        assert!(client.is_anchored(&all_ones));
+        assert_eq!(client.total_anchors(), 2);
+    }
+
+    // ── admin operations ─────────────────────────────────────────────────────
 
     #[test]
     #[should_panic(expected = "already initialized")]
@@ -294,11 +401,18 @@ mod tests {
     fn test_set_api_signer_updates_authorized_caller() {
         let (env, _old_signer, client) = setup();
         let new_signer = soroban_sdk::Address::generate(&env);
-        // admin is mock_all_auths so set_api_signer passes
         client.set_api_signer(&new_signer);
         let h = hash(&env);
-        client.anchor(&new_signer, &h);
+        client.anchor(&new_signer, &h).unwrap();
         assert!(client.is_anchored(&h));
+    }
+
+    #[test]
+    fn test_migrate_updates_version() {
+        let (env, _api_signer, client) = setup();
+        let new_ver = soroban_sdk::String::from_str(&env, "2.0.0");
+        client.migrate(&new_ver);
+        assert_eq!(client.get_version(), new_ver);
     }
 
     #[test]
