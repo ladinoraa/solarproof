@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf .next",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test"

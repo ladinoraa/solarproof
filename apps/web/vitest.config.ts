@@ -11,6 +11,12 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['src/__tests__/components/**', 'jsdom'],
     ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      all: true,
+      include: ['src/**/*.{ts,tsx}'],
+    },
   },
   resolve: {
     alias: {
