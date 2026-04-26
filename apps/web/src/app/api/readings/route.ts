@@ -8,6 +8,7 @@ import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { invalidateCert } from '@/lib/cache'
 import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
+import { requireAuth, isAuthError } from '@/lib/auth'
 
 const MAX_PAGE_SIZE = 100
 
@@ -16,8 +17,12 @@ const MAX_PAGE_SIZE = 100
  *
  * Cursor-based pagination via `cursor` (ISO timestamp) and `limit` (max 100).
  * Returns `{ data, next_cursor, total }`.
+ * Requires operator JWT.
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (isAuthError(auth)) return auth
+
   const { searchParams } = req.nextUrl
   const limit = Math.min(Number(searchParams.get('limit') ?? 20), MAX_PAGE_SIZE)
   const cursor = searchParams.get('cursor') // ISO timestamp of last seen row

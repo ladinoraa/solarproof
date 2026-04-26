@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAuth, isAuthError } from '@/lib/auth'
 
 const RegisterSchema = z.object({
   cooperative_id: z.string().uuid(),
@@ -8,8 +9,11 @@ const RegisterSchema = z.object({
   pubkey_hex: z.string().length(64),
 })
 
-/** GET /api/meters — list all meters */
-export async function GET() {
+/** GET /api/meters — list all meters (requires operator JWT) */
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (isAuthError(auth)) return auth
+
   const db = createServiceClient()
   const { data, error } = await db
     .from('meters')
@@ -20,8 +24,11 @@ export async function GET() {
   return NextResponse.json(data)
 }
 
-/** POST /api/meters — register a new meter */
+/** POST /api/meters — register a new meter (requires operator JWT) */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (isAuthError(auth)) return auth
+
   const body = await req.json().catch(() => null)
   const parsed = RegisterSchema.safeParse(body)
   if (!parsed.success) {
