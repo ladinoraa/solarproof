@@ -59,7 +59,8 @@ async function makeBody(privKey: Uint8Array, overrides: Record<string, unknown> 
 function makeRequest(body: unknown) {
   return {
     json: () => Promise.resolve(body),
-  } as Parameters<typeof POST>[0]
+    headers: { get: (_: string) => null },
+  } as unknown as Parameters<typeof POST>[0]
 }
 
 /** Build a Supabase mock that returns the given meter row. */
@@ -96,7 +97,7 @@ describe('POST /api/readings', () => {
   // ── 400 for malformed payloads ─────────────────────────────────────────────
 
   it('returns 400 when body is not JSON', async () => {
-    const req = { json: () => Promise.reject(new Error('bad json')) } as Parameters<typeof POST>[0]
+    const req = { json: () => Promise.reject(new Error('bad json')), headers: { get: (_: string) => null } } as unknown as Parameters<typeof POST>[0]
     const res = await POST(req)
     expect(res.status).toBe(400)
   })
