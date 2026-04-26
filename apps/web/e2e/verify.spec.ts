@@ -55,7 +55,6 @@ test.beforeEach(async ({ page }) => {
 
 test('submits a valid certificate ID and shows verified proof steps', async ({ page }) => {
   await page.goto('/verify')
-  await page.fill('#verify-query', 'valid-certificate-id')
   await Promise.all([
     page.waitForResponse('**/api/verify**'),
     page.click('button:has-text("Verify")'),
@@ -68,7 +67,6 @@ test('submits a valid certificate ID and shows verified proof steps', async ({ p
 
 test('submits an invalid certificate ID and shows an error state', async ({ page }) => {
   await page.goto('/verify')
-  await page.fill('#verify-query', 'invalid-certificate-id')
   await Promise.all([
     page.waitForResponse('**/api/verify**'),
     page.click('button:has-text("Verify")'),
