@@ -1,0 +1,76 @@
+{
+  "nav": {
+    "dashboard": "Panel",
+    "meters": "Medidores",
+    "certificates": "Certificados",
+    "governance": "Gobernanza",
+    "verify": "Verificar",
+    "connectWallet": "Conectar billetera",
+    "disconnectWallet": "Desconectar billetera",
+    "openMenu": "Abrir menú de navegación",
+    "closeMenu": "Cerrar menú de navegación",
+    "switchLight": "Cambiar a modo claro",
+    "switchDark": "Cambiar a modo oscuro"
+  },
+  "verify": {
+    "title": "Verificador de Certificados",
+    "subtitle": "Sin inicio de sesión. Ingrese un ID de certificado, hash de lectura o hash de transacción.",
+    "placeholder": "ID de certificado, hash de lectura o hash de tx…",
+    "verify": "Verificar",
+    "verifying": "Verificando…",
+    "share": "Compartir",
+    "copied": "¡Copiado!",
+    "fullChain": "Cadena de custodia completa confirmada",
+    "partialChain": "Verificación parcial — vea los pasos a continuación",
+    "steps": {
+      "meter": "Lectura del Medidor",
+      "meterDesc": "El medidor físico registró una lectura de energía firmada.",
+      "signature": "Firma Ed25519",
+      "signatureDesc": "Firma del dispositivo verificada contra el hash de lectura.",
+      "anchor": "Ancla On-chain",
+      "anchorDesc": "Hash de lectura anclado en Stellar mediante el contrato audit_registry.",
+      "certificate": "Certificado Emitido",
+      "certificateDesc": "Token de energía (1 token = 1 kWh) emitido en Stellar.",
+      "retirement": "Retiro",
+      "retirementDesc": "Certificado retirado para evitar doble conteo."
+    },
+    "cert": {
+      "heading": "Certificado",
+      "id": "ID",
+      "energy": "Energía",
+      "issued": "Emitido",
+      "status": "Estado",
+      "active": "Activo",
+      "retired": "Retirado"
+    }
+  },
+  "governance": {
+    "title": "Gobernanza",
+    "subtitle": "Propuestas comunitarias para la cooperativa SolarProof.",
+    "newProposal": "Nueva Propuesta",
+    "active": "Activas",
+    "closed": "Cerradas",
+    "connectToVote": "Conecta tu billetera para votar.",
+    "youVoted": "Votaste {choice}.",
+    "voteFor": "A favor",
+    "voteAgainst": "En contra",
+    "voteAbstain": "Abstención",
+    "form": {
+      "heading": "Nueva Propuesta",
+      "title": "Título",
+      "titlePlaceholder": "Título corto y descriptivo",
+      "description": "Descripción",
+      "descriptionPlaceholder": "Explica la motivación y el impacto esperado…",
+      "days": "Período de votación (días)",
+      "submit": "Enviar Propuesta",
+      "submitConnect": "Conectar Billetera y Enviar",
+      "submitting": "Enviando…",
+      "success": "¡Propuesta enviada con éxito!",
+      "errors": {
+        "titleRequired": "El título es obligatorio.",
+        "descriptionRequired": "La descripción es obligatoria.",
+        "daysInvalid": "Ingrese un número entre 1 y 30."
+      }
+    }
+  }
+}
