@@ -6,6 +6,7 @@ import { Sun, Moon, Menu, X, Wallet, LogOut } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useRef, useState } from 'react'
 import { useWallet } from '@/hooks/useWallet'
+import { env } from '@/env'
 
 const links = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -15,13 +16,44 @@ const links = [
   { href: '/verify', label: 'Verify' },
 ]
 
+const network = env.NEXT_PUBLIC_STELLAR_NETWORK
+
+function NetworkBadge() {
+  const isMainnet = network === 'mainnet'
+  return (
+    <a
+      href={
+        isMainnet
+          ? 'https://stellar.expert/explorer/public'
+          : 'https://stellar.expert/explorer/testnet'
+      }
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Stellar ${isMainnet ? 'Mainnet' : 'Testnet'} — view network info`}
+      className={`hidden items-center rounded-full px-2 py-0.5 text-xs font-semibold md:flex ${
+        isMainnet
+          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+      }`}
+    >
+      {isMainnet ? 'Mainnet' : 'Testnet'}
+    </a>
+  )
+}
+
 export function Navbar() {
   const pathname = usePathname()
   const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const { address, connected, loading: walletLoading, connect, disconnect } = useWallet()
+
+  // Prevent hydration mismatch: only render theme/wallet UI after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close menu on route change
   useEffect(() => {
@@ -114,10 +146,13 @@ export function Navbar() {
           })}
         </div>
 
-        {/* Right side: theme toggle + wallet + hamburger */}
+        {/* Right side: network badge + theme toggle + wallet + hamburger */}
         <div className="flex items-center gap-2">
-          {/* Wallet connect */}
-          {!walletLoading && (
+          {/* Stellar network indicator — always visible, no browser API needed */}
+          <NetworkBadge />
+
+          {/* Wallet connect — only rendered client-side to avoid hydration mismatch */}
+          {mounted && !walletLoading && (
             connected && address ? (
               <button
                 onClick={disconnect}
@@ -140,13 +175,20 @@ export function Navbar() {
               </button>
             )
           )}
-          {/* Dark mode toggle */}
+
+          {/* Dark mode toggle — suppress until mounted to avoid hydration mismatch */}
           <button
             onClick={toggleTheme}
-            aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={
+              mounted
+                ? resolvedTheme === 'dark'
+                  ? 'Switch to light mode'
+                  : 'Switch to dark mode'
+                : 'Toggle theme'
+            }
             className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
           >
-            {resolvedTheme === 'dark' ? (
+            {mounted && resolvedTheme === 'dark' ? (
               <Sun className="h-4 w-4" aria-hidden="true" />
             ) : (
               <Moon className="h-4 w-4" aria-hidden="true" />
