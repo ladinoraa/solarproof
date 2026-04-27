@@ -6,6 +6,7 @@ import { Sun, Moon, Menu, X, Wallet, LogOut } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useRef, useState } from 'react'
 import { useWallet } from '@/hooks/useWallet'
+import { CopyButton } from './copy-button'
 
 const links = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -119,16 +120,21 @@ export function Navbar() {
           {/* Wallet connect */}
           {!walletLoading && (
             connected && address ? (
-              <button
-                onClick={disconnect}
-                title={address}
-                aria-label={`Disconnect wallet ${address.slice(0, 6)}…`}
-                className="hidden items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 md:flex"
-              >
-                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                {address.slice(0, 4)}…{address.slice(-4)}
-                <LogOut className="h-3 w-3 ml-0.5 text-gray-400" aria-hidden="true" />
-              </button>
+              <div className="hidden items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 dark:border-gray-700 md:flex">
+                <Wallet className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {address.slice(0, 4)}…{address.slice(-4)}
+                </span>
+                <CopyButton value={address} label={`Copy wallet address ${address}`} iconSize={12} />
+                <button
+                  onClick={disconnect}
+                  aria-label="Disconnect wallet"
+                  title="Disconnect"
+                  className="ml-0.5 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+                >
+                  <LogOut className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => connect().catch(() => {})}

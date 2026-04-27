@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Search, CheckCircle, XCircle, ExternalLink, Shield } from 'lucide-react'
 import { SectionSkeleton } from '@/components/skeleton'
+import { CopyableText } from '@/components/copy-button'
 
 interface ChainOfCustody {
   certificate: {
@@ -192,16 +193,20 @@ export default function VerifyPage() {
           {/* Meter proof */}
           {result.meter_proof && (
             <Section title="Meter proof">
-              <Row label="Meter ID" value={result.meter_proof.meter_id} mono />
+              <Row label="Meter ID" value={result.meter_proof.meter_id} mono copyable />
               <Row
                 label="Reading hash"
                 value={result.meter_proof.reading_hash.slice(0, 16) + '…'}
+                fullValue={result.meter_proof.reading_hash}
                 mono
+                copyable
               />
               <Row
                 label="Signature"
                 value={result.meter_proof.signature_hex.slice(0, 16) + '…'}
+                fullValue={result.meter_proof.signature_hex}
                 mono
+                copyable
               />
               <Row label="kWh" value={String(result.meter_proof.kwh)} />
               <Row
@@ -236,17 +241,41 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({
   label,
   value,
+  fullValue,
   mono,
   link,
+  copyable,
 }: {
   label: string
   value: string
+  fullValue?: string
   mono?: boolean
   link?: string
+  copyable?: boolean
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2 text-sm sm:gap-4">
       <dt className="shrink-0 text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className={`break-all text-right text-gray-900 dark:text-gray-100 ${mono ? 'font-mono text-xs' : ''}`}>
+        {link ? (
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {value}
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+          </a>
+        ) : copyable ? (
+          <CopyableText value={fullValue || value} displayValue={value} mono={mono} />
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
+  )
+}
       {link ? (
         <dd>
           <a

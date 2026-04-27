@@ -6,6 +6,7 @@ import { Award, Leaf } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
 import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
+import { CopyableText } from '@/components/copy-button'
 
 interface Certificate {
   id: string
@@ -111,8 +112,8 @@ export default function CertificatesPage() {
               ) : data && data.length > 0 ? (
                 data.map((cert) => (
                   <tr key={cert.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
-                      {cert.id.slice(0, 8)}…
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                      <CopyableText value={cert.id} displayValue={`${cert.id.slice(0, 8)}…`} />
                     </td>
                     <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
