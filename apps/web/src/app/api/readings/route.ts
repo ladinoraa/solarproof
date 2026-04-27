@@ -5,10 +5,11 @@ import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
-import { invalidateCert } from '@/lib/cache'
+import { invalidateCert, checkRateLimit } from '@/lib/cache'
 import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 import { requireAuth, isAuthError } from '@/lib/auth'
+import { diagnoseMintFailure } from '@/lib/tracer-sim'
 
 const MAX_PAGE_SIZE = 100
 
@@ -134,6 +135,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
   }
 
+  // Rate limit: 60 requests/minute per meter public key
+  const rl = await checkRateLimit(meter.pubkey_hex)
+  if (!rl.allowed) {
+    log.warn('readings.post.rate_limited', { meter_id })
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } }
+    )
+  }
+
   // Compute canonical reading hash
   const kwhStroops = kwhToStroops(kwh)
   const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))
@@ -216,6 +227,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Mint failed'
     log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
-    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash }, { status: 500 })
+    const diagnosis = await diagnoseMintFailure(reading.id, meter.cooperative_id, message)
+    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash, diagnosis }, { status: 500 })
   }
 }
