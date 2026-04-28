@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { WalletGate } from '@/components/wallet-gate'
 import {
   AreaChart,
   Area,
@@ -177,6 +178,7 @@ export default function DashboardPage() {
   const meterData = readings ? groupByMeter(readings) : []
 
   return (
+    <WalletGate>
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
 
@@ -198,7 +200,6 @@ export default function DashboardPage() {
             </>
           ) : null}
         </div>
-        </ErrorBoundary>
       </section>
 
       {/* Charts */}
@@ -313,7 +314,6 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        </ErrorBoundary>
       </section>
 
       {/* Recent readings table */}
@@ -365,8 +365,8 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
-        </ErrorBoundary>
       </section>
     </div>
+    </WalletGate>
   )
 }
