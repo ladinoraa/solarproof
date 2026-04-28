@@ -8,13 +8,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useWallet } from '@/hooks/useWallet'
 import { env } from '@/env'
 
-const links = [
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/meters', label: 'Meters' },
-  { href: '/certificates', label: 'Certificates' },
-  { href: '/governance', label: 'Governance' },
-  { href: '/verify', label: 'Verify' },
-]
+interface NavbarProps {
+  locale: Locale
+}
 
 const network = env.NEXT_PUBLIC_STELLAR_NETWORK
 
@@ -56,9 +52,7 @@ export function Navbar() {
   }, [])
 
   // Close menu on route change
-  useEffect(() => {
-    setMenuOpen(false)
-  }, [pathname])
+  useEffect(() => { setMenuOpen(false) }, [pathname])
 
   // Close menu on outside click
   useEffect(() => {
@@ -78,9 +72,7 @@ export function Navbar() {
   // Trap focus inside mobile menu when open
   useEffect(() => {
     if (!menuOpen) return
-    const focusable = menuRef.current?.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled])'
-    )
+    const focusable = menuRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')
     focusable?.[0]?.focus()
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -92,21 +84,15 @@ export function Navbar() {
         const first = focusable[0]
         const last = focusable[focusable.length - 1]
         if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
+          e.preventDefault(); last.focus()
         } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
+          e.preventDefault(); first.focus()
         }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [menuOpen])
-
-  function toggleTheme() {
-    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-  }
 
   return (
     <nav
@@ -172,11 +158,11 @@ export function Navbar() {
             ) : (
               <button
                 onClick={() => connect().catch(() => {})}
-                aria-label="Connect Freighter wallet"
+                aria-label={t('connectWallet')}
                 className="hidden items-center gap-1.5 rounded-md bg-yellow-400 px-3 py-1.5 text-xs font-medium text-gray-900 transition-colors hover:bg-yellow-500 md:flex"
               >
                 <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                Connect wallet
+                {t('connectWallet')}
               </button>
             )
           )}
@@ -204,16 +190,12 @@ export function Navbar() {
           <button
             ref={menuButtonRef}
             onClick={() => setMenuOpen((o) => !o)}
-            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-label={menuOpen ? t('closeMenu') : t('openMenu')}
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 md:hidden"
           >
-            {menuOpen ? (
-              <X className="h-5 w-5" aria-hidden="true" />
-            ) : (
-              <Menu className="h-5 w-5" aria-hidden="true" />
-            )}
+            {menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
         </div>
       </div>
@@ -249,6 +231,10 @@ export function Navbar() {
                 )
               })}
             </ul>
+            {/* Language switcher in mobile menu */}
+            <div className="mt-3 px-3">
+              <LanguageSwitcher current={locale} />
+            </div>
           </nav>
         </div>
       )}
