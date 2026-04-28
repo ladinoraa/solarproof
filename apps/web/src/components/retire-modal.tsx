@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { X, Leaf } from 'lucide-react'
+import { CopyableText } from './copy-button'
 
 interface Props {
   certificateId: string
@@ -52,7 +53,8 @@ export function RetireModal({ certificateId, kwh, onConfirm, onClose }: Props) {
 
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
           You are about to permanently retire certificate{' '}
-          <span className="font-mono text-xs">{certificateId.slice(0, 8)}…</span> ({kwh} kWh).
+          <CopyableText value={certificateId} displayValue={`${certificateId.slice(0, 8)}…`} />
+          {' '}({kwh} kWh).
           This action cannot be undone.
         </p>
 
