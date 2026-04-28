@@ -6,30 +6,50 @@ import { Sun, Moon, Menu, X, Wallet, LogOut } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useRef, useState } from 'react'
 import { useWallet } from '@/hooks/useWallet'
-import { useTranslations } from 'next-intl'
-import { LanguageSwitcher } from '@/components/language-switcher'
-import type { Locale } from '@/lib/locales'
+import { env } from '@/env'
 
 interface NavbarProps {
   locale: Locale
 }
 
-export function Navbar({ locale }: NavbarProps) {
-  const t = useTranslations('nav')
+const network = env.NEXT_PUBLIC_STELLAR_NETWORK
+
+function NetworkBadge() {
+  const isMainnet = network === 'mainnet'
+  return (
+    <a
+      href={
+        isMainnet
+          ? 'https://stellar.expert/explorer/public'
+          : 'https://stellar.expert/explorer/testnet'
+      }
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Stellar ${isMainnet ? 'Mainnet' : 'Testnet'} — view network info`}
+      className={`hidden items-center rounded-full px-2 py-0.5 text-xs font-semibold md:flex ${
+        isMainnet
+          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+      }`}
+    >
+      {isMainnet ? 'Mainnet' : 'Testnet'}
+    </a>
+  )
+}
+
+export function Navbar() {
   const pathname = usePathname()
   const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const { address, connected, loading: walletLoading, connect, disconnect } = useWallet()
 
-  const links = [
-    { href: '/dashboard', label: t('dashboard') },
-    { href: '/meters', label: t('meters') },
-    { href: '/certificates', label: t('certificates') },
-    { href: '/governance', label: t('governance') },
-    { href: '/verify', label: t('verify') },
-  ]
+  // Prevent hydration mismatch: only render theme/wallet UI after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close menu on route change
   useEffect(() => { setMenuOpen(false) }, [pathname])
@@ -112,26 +132,29 @@ export function Navbar({ locale }: NavbarProps) {
           })}
         </div>
 
-        {/* Right side: language switcher + theme toggle + wallet + hamburger */}
+        {/* Right side: network badge + theme toggle + wallet + hamburger */}
         <div className="flex items-center gap-2">
-          {/* Language switcher */}
-          <div className="hidden md:block">
-            <LanguageSwitcher current={locale} />
-          </div>
+          {/* Stellar network indicator — always visible, no browser API needed */}
+          <NetworkBadge />
 
-          {/* Wallet connect */}
-          {!walletLoading && (
+          {/* Wallet connect — only rendered client-side to avoid hydration mismatch */}
+          {mounted && !walletLoading && (
             connected && address ? (
-              <button
-                onClick={disconnect}
-                title={address}
-                aria-label={`${t('disconnectWallet')} ${address.slice(0, 6)}…`}
-                className="hidden items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 md:flex"
-              >
-                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                {address.slice(0, 4)}…{address.slice(-4)}
-                <LogOut className="h-3 w-3 ml-0.5 text-gray-400" aria-hidden="true" />
-              </button>
+              <div className="hidden items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 dark:border-gray-700 md:flex">
+                <Wallet className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {address.slice(0, 4)}…{address.slice(-4)}
+                </span>
+                <CopyButton value={address} label={`Copy wallet address ${address}`} iconSize={12} />
+                <button
+                  onClick={disconnect}
+                  aria-label="Disconnect wallet"
+                  title="Disconnect"
+                  className="ml-0.5 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+                >
+                  <LogOut className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => connect().catch(() => {})}
@@ -144,13 +167,19 @@ export function Navbar({ locale }: NavbarProps) {
             )
           )}
 
-          {/* Dark mode toggle */}
+          {/* Dark mode toggle — suppress until mounted to avoid hydration mismatch */}
           <button
-            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            aria-label={resolvedTheme === 'dark' ? t('switchLight') : t('switchDark')}
+            onClick={toggleTheme}
+            aria-label={
+              mounted
+                ? resolvedTheme === 'dark'
+                  ? 'Switch to light mode'
+                  : 'Switch to dark mode'
+                : 'Toggle theme'
+            }
             className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
           >
-            {resolvedTheme === 'dark' ? (
+            {mounted && resolvedTheme === 'dark' ? (
               <Sun className="h-4 w-4" aria-hidden="true" />
             ) : (
               <Moon className="h-4 w-4" aria-hidden="true" />

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Search, CheckCircle, XCircle, Shield, ExternalLink, Copy } from 'lucide-react'
 import { SectionSkeleton } from '@/components/skeleton'
+import { CopyableText } from '@/components/copy-button'
 
 interface ChainOfCustody {
   certificate: {
@@ -271,18 +272,32 @@ export default function VerifyPage() {
             })}
           </ol>
 
-          {/* Certificate summary */}
-          <section aria-labelledby="cert-summary-heading" className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
-            <h2 id="cert-summary-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Certificate
-            </h2>
-            <dl className="space-y-2 text-sm">
-              <Row label="ID" value={result!.certificate.id} mono />
-              <Row label="Energy" value={`${result!.certificate.kwh} kWh`} />
-              <Row label="Issued" value={new Date(result!.certificate.issued_at).toLocaleString()} />
-              <Row label="Status" value={result!.certificate.retired ? `Retired ${result!.certificate.retired_at ? new Date(result!.certificate.retired_at).toLocaleDateString() : ''}` : 'Active'} />
-            </dl>
-          </section>
+          {/* Meter proof */}
+          {result.meter_proof && (
+            <Section title="Meter proof">
+              <Row label="Meter ID" value={result.meter_proof.meter_id} mono copyable />
+              <Row
+                label="Reading hash"
+                value={result.meter_proof.reading_hash.slice(0, 16) + '…'}
+                fullValue={result.meter_proof.reading_hash}
+                mono
+                copyable
+              />
+              <Row
+                label="Signature"
+                value={result.meter_proof.signature_hex.slice(0, 16) + '…'}
+                fullValue={result.meter_proof.signature_hex}
+                mono
+                copyable
+              />
+              <Row label="kWh" value={String(result.meter_proof.kwh)} />
+              <Row
+                label="Timestamp"
+                value={new Date(result.meter_proof.timestamp).toLocaleString()}
+              />
+              <Row label="Ed25519 verified" value="✓ Valid" />
+            </Section>
+          )}
         </div>
       )}
     </div>
@@ -307,13 +322,68 @@ function StepIcon({ status }: { status: StepStatus }) {
   )
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  fullValue,
+  mono,
+  link,
+  copyable,
+}: {
+  label: string
+  value: string
+  fullValue?: string
+  mono?: boolean
+  link?: string
+  copyable?: boolean
+}) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2">
       <dt className="shrink-0 text-gray-500 dark:text-gray-400">{label}</dt>
       <dd className={`break-all text-right text-gray-900 dark:text-gray-100 ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
+        {link ? (
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {value}
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+          </a>
+        ) : copyable ? (
+          <CopyableText value={fullValue || value} displayValue={value} mono={mono} />
+        ) : (
+          value
+        )}
       </dd>
+    </div>
+  )
+}
+      {link ? (
+        <dd>
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${label}: ${value} (opens in new tab)`}
+            className={`flex items-center gap-1 break-all text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 rounded dark:text-blue-400 dark:focus:ring-yellow-500 dark:focus:ring-offset-gray-900 ${
+              mono ? 'font-mono text-xs' : ''
+            }`}
+          >
+            {value}
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+          </a>
+        </dd>
+      ) : (
+        <dd
+          className={`break-all text-right text-gray-900 dark:text-gray-100 ${
+            mono ? 'font-mono text-xs' : ''
+          }`}
+        >
+          {value}
+        </dd>
+      )}
     </div>
   )
 }

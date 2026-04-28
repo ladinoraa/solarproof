@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { WalletGate } from '@/components/wallet-gate'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { PlusCircle, ShieldOff } from 'lucide-react'
+import { CopyableText } from '@/components/copy-button'
 
 interface Meter {
   id: string
@@ -222,6 +224,7 @@ export default function MetersPage() {
   })
 
   return (
+    <WalletGate>
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Meters</h1>
 
@@ -271,8 +274,8 @@ export default function MetersPage() {
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                       {m.serial_number}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">
-                      {m.pubkey_hex.slice(0, 16)}…
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                      <CopyableText value={m.pubkey_hex} displayValue={`${m.pubkey_hex.slice(0, 16)}…`} />
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -326,5 +329,6 @@ export default function MetersPage() {
         />
       )}
     </div>
+    </WalletGate>
   )
 }
