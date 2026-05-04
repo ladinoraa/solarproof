@@ -17,9 +17,9 @@
     "@sentry/nextjs": "^9.0.0",
     "@solarproof/stellar": "workspace:*",
     "@stellar/stellar-sdk": "^13.1.0",
-    "@supabase/supabase-js": "^2.105.0",
+    "@supabase/supabase-js": "^2.105.3",
     "@t3-oss/env-nextjs": "0.13.11",
-    "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-query": "^5.100.9",
     "@vercel/analytics": "^1.4.0",
     "@vercel/speed-insights": "^1.1.0",
     "clsx": "^2.1.1",
@@ -33,7 +33,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.1",
+    "@axe-core/playwright": "^4.11.3",
     "@noble/ed25519": "^2.3.0",
     "@playwright/test": "^1.59.1",
     "@testing-library/react": "^16.1.0",
