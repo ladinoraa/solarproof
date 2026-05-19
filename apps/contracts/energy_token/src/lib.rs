@@ -245,7 +245,9 @@ impl EnergyToken {
 
         let key = (symbol_short!("balance"), to.clone());
         let bal: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        let new_bal = bal.checked_add(amount).unwrap_or_else(|| panic!("overflow: balance"));
+        let new_bal = bal
+            .checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: balance"));
         env.storage().persistent().set(&key, &new_bal);
 
         let total: i128 = env
@@ -256,7 +258,9 @@ impl EnergyToken {
         let new_total = total
             .checked_add(amount)
             .unwrap_or_else(|| panic!("overflow: total_minted"));
-        env.storage().instance().set(&DataKey::TotalMinted, &new_total);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalMinted, &new_total);
 
         env.events().publish((symbol_short!("mint"),), (to, amount));
     }
@@ -283,7 +287,8 @@ impl EnergyToken {
         Self::require_not_paused(&env);
         Self::deduct_balance(&env, &from, amount);
         Self::add_burned(&env, amount);
-        env.events().publish((symbol_short!("burn"),), (from, amount));
+        env.events()
+            .publish((symbol_short!("burn"),), (from, amount));
     }
 
     /// Returns the current circulating supply: `total_minted - total_burned`.
@@ -359,7 +364,9 @@ impl EnergyToken {
         let tk = (symbol_short!("balance"), to.clone());
         let tb: i128 = env.storage().persistent().get(&tk).unwrap_or(0);
         env.storage().persistent().set(&fk, &(fb - amount));
-        let new_tb = tb.checked_add(amount).unwrap_or_else(|| panic!("overflow: recipient balance"));
+        let new_tb = tb
+            .checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow: recipient balance"));
         env.storage().persistent().set(&tk, &new_tb);
     }
 
@@ -379,7 +386,9 @@ impl EnergyToken {
         let new_total = total
             .checked_add(amount)
             .unwrap_or_else(|| panic!("overflow: total_burned"));
-        env.storage().instance().set(&DataKey::TotalBurned, &new_total);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalBurned, &new_total);
     }
 
     fn spend_allowance(env: &Env, from: &Address, spender: &Address, amount: i128) {

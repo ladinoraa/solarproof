@@ -36,7 +36,11 @@ fn lifecycle_pass_and_execute() {
     let (env, client) = setup();
     let proposer = soroban_sdk::Address::generate(&env);
 
-    let id = client.propose(&proposer, &title(&env, "Solar expansion"), &title(&env, "Add 10 panels"));
+    let id = client.propose(
+        &proposer,
+        &title(&env, "Solar expansion"),
+        &title(&env, "Add 10 panels"),
+    );
 
     // Cast enough yes votes to exceed the 51% threshold
     for _ in 0..3 {
@@ -44,7 +48,8 @@ fn lifecycle_pass_and_execute() {
     }
 
     // Advance past voting period
-    env.ledger().with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
     client.finalize(&id);
 
     let proposal = client.get_proposal(&id).unwrap();
@@ -52,7 +57,8 @@ fn lifecycle_pass_and_execute() {
     assert_eq!(proposal.yes_votes, 3);
 
     // Advance past execution timelock
-    env.ledger().with_mut(|l| l.sequence_number += EXECUTE_TIMELOCK);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += EXECUTE_TIMELOCK);
     client.execute(&id);
 
     assert_eq!(
@@ -75,7 +81,8 @@ fn lifecycle_reject_blocks_execution() {
     client.vote(&soroban_sdk::Address::generate(&env), &id, &false);
     client.vote(&soroban_sdk::Address::generate(&env), &id, &false);
 
-    env.ledger().with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
     client.finalize(&id);
 
     assert_eq!(
@@ -104,7 +111,8 @@ fn lifecycle_quorum_not_met_blocks_execution() {
     client.vote(&soroban_sdk::Address::generate(&env), &id, &true);
     client.vote(&soroban_sdk::Address::generate(&env), &id, &false);
 
-    env.ledger().with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
     client.finalize(&id);
 
     // 1 yes / 2 total = 50% < 51% threshold → Rejected
@@ -124,10 +132,15 @@ fn lifecycle_expired_proposal_cannot_execute() {
     let (env, client) = setup();
     let proposer = soroban_sdk::Address::generate(&env);
 
-    let id = client.propose(&proposer, &title(&env, "Ghost proposal"), &title(&env, "No votes"));
+    let id = client.propose(
+        &proposer,
+        &title(&env, "Ghost proposal"),
+        &title(&env, "No votes"),
+    );
 
     // No votes cast — advance past voting period
-    env.ledger().with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += VOTING_PERIOD + 1);
     client.finalize(&id);
 
     assert_eq!(
