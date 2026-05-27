@@ -78,7 +78,7 @@ const ReadingSchema = z.object({
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
   signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
-  nonce: z.string().min(1).max(128).optional(),
+  nonce: z.string().min(1).max(128),      // Required for replay protection
 })
 
 /**
@@ -103,6 +103,13 @@ export async function POST(req: NextRequest) {
 
   const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
   const db = createServiceClient()
+
+  // Timestamp check: reject if >5 minutes old
+  const ageMs = Date.now() - (timestamp * 1000)
+  if (ageMs > 5 * 60 * 1000 || ageMs < -60 * 1000) {
+    log.warn('readings.post.stale_timestamp', { meter_id, timestamp })
+    return NextResponse.json({ error: 'Reading timestamp is too old or in the future' }, { status: 400 })
+  }
 
   // Idempotency check: return cached response if nonce was seen within 24 h
   if (nonce) {
@@ -184,7 +191,7 @@ export async function POST(req: NextRequest) {
   // Anchor on-chain (hash only — full payload already in Supabase)
   let anchorTxHash: string
   try {
-    anchorTxHash = await anchorReading({ readingHash })
+    anchorTxHash = await anchorReading({ readingHash, nonce })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
     log.info('readings.post.anchored', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
     void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })

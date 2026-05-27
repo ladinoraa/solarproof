@@ -2,6 +2,7 @@ import { Keypair, TransactionBuilder, Networks, BASE_FEE, Contract, Address, xdr
 import * as SorobanRpc from '@stellar/stellar-sdk/rpc'
 import { kwhToStroops, amountToScVal, addressToScVal, bytesToScVal } from '@solarproof/stellar'
 import { env } from '@/env'
+import { createHash } from 'crypto'
 
 const NETWORK_PASSPHRASE = Networks.TESTNET
 const RPC_URL = 'https://soroban-testnet.stellar.org'
@@ -120,6 +121,7 @@ async function submitTx(
  */
 export async function anchorReading(params: {
   readingHash: Buffer
+  nonce?: string
   correlationId?: string
 }): Promise<string> {
   const correlationId = params.correlationId ?? crypto.randomUUID()
@@ -128,10 +130,15 @@ export async function anchorReading(params: {
   const account = await rpcCall(() => server.getAccount(minter.publicKey()), correlationId)
   const contract = new Contract(env.NEXT_PUBLIC_AUDIT_REGISTRY_ID)
 
-    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-      .addOperation(contract.call('anchor', bytesToScVal(params.readingHash)))
-      .setTimeout(30)
-      .build()
+  // Derive a 32-byte hash from the nonce if provided, else use all zeros (for backwards compatibility in tests if any)
+  const nonceBytes = params.nonce 
+    ? createHash('sha256').update(params.nonce).digest() 
+    : Buffer.alloc(32)
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(contract.call('anchor', bytesToScVal(params.readingHash), bytesToScVal(nonceBytes)))
+    .setTimeout(30)
+    .build()
 
   return submitTx(tx, minter, correlationId)
 }
