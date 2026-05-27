@@ -29,7 +29,15 @@ function makeDb(cert: unknown, updated: unknown = cert) {
   const eq = vi.fn().mockReturnValue({ select, single })
   const updateEq = vi.fn().mockReturnValue({ select: updateSelect })
   const update = vi.fn().mockReturnValue({ eq: updateEq })
-  const from = vi.fn().mockReturnValue({ select: () => ({ eq }), update })
+  const from = vi.fn((table: string) => {
+    if (table === 'webhook_endpoints') {
+      const contains = vi.fn().mockResolvedValue({ data: [] })
+      const eq2 = vi.fn().mockReturnValue({ contains })
+      const eq1 = vi.fn().mockReturnValue({ eq: eq2 })
+      return { select: vi.fn().mockReturnValue({ eq: eq1 }) }
+    }
+    return { select: () => ({ eq }), update }
+  })
   return from
 }
 
@@ -70,7 +78,7 @@ describe('POST /api/certificates/[id]/retire', () => {
   })
 
   it('returns 200 on successful retirement', async () => {
-    const cert = { id: VALID_UUID, retired: false, kwh: 10 }
+    const cert = { id: VALID_UUID, retired: false, kwh: 10, issued_at: '2026-01-01T00:00:00Z' }
     const updated = { id: VALID_UUID, retired: true, retired_at: '2026-01-01T00:00:00Z', retired_by: WALLET }
     const from = makeDb(cert, updated)
     vi.mocked(createServiceClient).mockReturnValue({ from } as never)
@@ -84,7 +92,7 @@ describe('POST /api/certificates/[id]/retire', () => {
   })
 
   it('returns 500 when Stellar retire call fails', async () => {
-    const cert = { id: VALID_UUID, retired: false, kwh: 10 }
+    const cert = { id: VALID_UUID, retired: false, kwh: 10, issued_at: '2026-01-01T00:00:00Z' }
     const from = makeDb(cert)
     vi.mocked(createServiceClient).mockReturnValue({ from } as never)
     vi.mocked(retireCertificate).mockRejectedValueOnce(new Error('Stellar error'))

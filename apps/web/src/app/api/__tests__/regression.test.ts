@@ -59,13 +59,15 @@ async function makeKeypair() {
 
 async function makeReadingBody(privKey: Uint8Array, overrides: Record<string, unknown> = {}) {
   const kwhStroops = kwhToStroops(KWH)
-  const hash = computeReadingHash(METER_ID, kwhStroops, BigInt(TIMESTAMP))
+  const currentTimestamp = overrides.timestamp as number ?? Math.floor(Date.now() / 1000)
+  const hash = computeReadingHash(METER_ID, kwhStroops, BigInt(currentTimestamp))
   const sig = await sign(hash, privKey)
   return {
     meter_id: METER_ID,
     kwh: KWH,
-    timestamp: TIMESTAMP,
+    timestamp: currentTimestamp,
     signature_hex: Buffer.from(sig).toString('hex'),
+    nonce: 'test_nonce_123',
     ...overrides,
   }
 }
@@ -126,6 +128,12 @@ function mockReadingDb(meter: unknown) {
             eq: vi.fn().mockResolvedValue({}),
           }),
         }
+      }
+      if (table === 'webhook_endpoints') {
+        const contains = vi.fn().mockResolvedValue({ data: [] })
+        const eq2 = vi.fn().mockReturnValue({ contains })
+        const eq1 = vi.fn().mockReturnValue({ eq: eq2 })
+        return { select: vi.fn().mockReturnValue({ eq: eq1 }) }
       }
       return {}
     }),

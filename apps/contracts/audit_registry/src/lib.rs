@@ -59,7 +59,7 @@ pub struct AuditAnchor {
     pub anchored_at_ledger: u32,
 }
 
-/// Enumeration of all storage keys used by this contract.
+    /// Enumeration of all storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
     /// `Address` — the contract administrator.
@@ -68,6 +68,8 @@ pub enum DataKey {
     ApiSigner,
     /// `AuditAnchor` — keyed by the 32-byte reading hash.
     Anchor(BytesN<32>),
+    /// `bool` — keyed by the 32-byte nonce.
+    Nonce(BytesN<32>),
     /// `u32` — total number of anchors stored.
     TotalAnchors,
     Version,
@@ -169,6 +171,7 @@ impl AuditRegistry {
         env: Env,
         caller: soroban_sdk::Address,
         reading_hash: BytesN<32>,
+        nonce: soroban_sdk::BytesN<32>,
     ) -> Result<(), Error> {
         caller.require_auth();
         let api_signer: Address = env
@@ -180,10 +183,17 @@ impl AuditRegistry {
             return Err(Error::Unauthorized);
         }
 
+        let nonce_key = DataKey::Nonce(nonce.clone());
+        if env.storage().persistent().has(&nonce_key) {
+            return Err(Error::AlreadyAnchored);
+        }
+
         let key = DataKey::Anchor(reading_hash.clone());
         if env.storage().persistent().has(&key) {
             return Err(Error::AlreadyAnchored);
         }
+
+        env.storage().persistent().set(&nonce_key, &true);
 
         let anchor = AuditAnchor {
             reading_hash: reading_hash.clone(),

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { retireCertificate } from '@/lib/stellar'
 import { fireWebhook } from '@/lib/webhooks'
+import { triggerIRecRetirement } from '@/lib/irec-bridge'
 
 const RetireSchema = z.object({
   wallet_address: z.string().min(1),
@@ -79,6 +80,15 @@ export async function POST(
     certificate_id: updated.id,
     retired_by: updated.retired_by,
     retire_tx_hash: retireTxHash,
+  })
+
+  // Level 3 integration: Bridge retirement to I-REC registry
+  void triggerIRecRetirement({
+    beneficiary: wallet_address,
+    volumeWh: cert.kwh * 1000,
+    vintageStart: new Date(cert.issued_at).toISOString(),
+    vintageEnd: new Date(cert.issued_at).toISOString(),
+    notes: `Retired via SolarProof: ${cert.id}`,
   })
 
   return NextResponse.json({
