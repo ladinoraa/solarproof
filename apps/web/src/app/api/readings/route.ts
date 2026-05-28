@@ -71,8 +71,6 @@ function isAlreadyAnchoredError(err: unknown): boolean {
   return message.includes('alreadyanchored') || message.includes('reading already anchored') || message.includes('duplicate')
 }
 
-const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
-
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
@@ -84,15 +82,28 @@ const ReadingSchema = z.object({
 /**
  * POST /api/readings
  *
- * Verifies the Ed25519 signature, persists the reading, then enqueues
- * the Stellar anchor + mint as an async job.
+ * Verifies the Ed25519 signature, persists the reading, anchors on Stellar,
+ * and mints a certificate.
  *
- * Returns 202 Accepted immediately with { reading_id, job_id }.
- * Poll GET /api/jobs/[job_id] for completion status.
+ * Supports idempotency via the `Idempotency-Key` header (UUID recommended).
+ * Duplicate requests with the same key return the cached response without
+ * re-processing. Keys expire after IDEMPOTENCY_TTL_SECONDS (default 24 h).
+ *
+ * Returns 201 Created with { reading_id, anchor_tx_hash, mint_tx_hash }.
  */
 export async function POST(req: NextRequest) {
   const correlationId = req.headers.get('x-correlation-id') ?? undefined
   const log = correlationId ? logger.withCorrelationId(correlationId) : logger
+
+  // Idempotency-Key header check
+  const idempotencyKey = req.headers.get('idempotency-key')
+  if (idempotencyKey) {
+    const cached = await getIdempotentResponse(idempotencyKey)
+    if (cached) {
+      log.info('readings.post.idempotent_hit', { idempotencyKey })
+      return NextResponse.json(cached.body, { status: cached.status })
+    }
+  }
 
   const body = await req.json().catch(() => null)
   const parsed = ReadingSchema.safeParse(body)
@@ -101,7 +112,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
+  const { meter_id, kwh, timestamp, signature_hex } = parsed.data
   const db = createServiceClient()
 
   // Timestamp check: reject if >5 minutes old
@@ -230,7 +241,11 @@ export async function POST(req: NextRequest) {
     log.info('readings.post.minted', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
     void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
 
-    return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
+    const responseBody = { reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }
+    if (idempotencyKey) {
+      await storeIdempotentResponse(idempotencyKey, { body: responseBody, status: 201 })
+    }
+    return NextResponse.json(responseBody, { status: 201 })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Mint failed'
     log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
