@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/AnnabelJoe/solarproof/compare/v1.0.0...v1.1.0) (2026-05-28)
+
+### Features
+
+* responsive dashboard, certificate detail page, toast notifications, and accessibility improvements ([704c0a5](https://github.com/AnnabelJoe/solarproof/commit/704c0a5dc414eaeb4d15da15d4579a10f1bc076a))
+
 ## 1.0.0 (2026-05-19)
 
 ### Features
