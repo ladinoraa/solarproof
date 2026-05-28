@@ -64,3 +64,47 @@ export async function setCachedCert(id: string, value: unknown): Promise<void> {
 export async function invalidateCert(...ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => redisDel(certCacheKey(id))))
 }
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+const RATE_LIMIT_WINDOW = 60 // seconds
+const RATE_LIMIT_MAX = 60    // requests per window
+
+/**
+ * Sliding-window rate limiter keyed by meter public key.
+ * Returns { allowed: true } or { allowed: false, retryAfter: number }.
+ * Falls back to allowing all requests when Redis is unavailable.
+ */
+export async function checkRateLimit(pubkeyHex: string): Promise<{ allowed: true } | { allowed: false; retryAfter: number }> {
+  if (!UPSTASH_REDIS_REST_URL) return { allowed: true }
+
+  const key = `rl:${pubkeyHex}`
+  const now = Math.floor(Date.now() / 1000)
+  const windowStart = now - RATE_LIMIT_WINDOW
+
+  // Use Upstash pipeline: ZREMRANGEBYSCORE + ZADD + ZCARD + EXPIRE
+  const pipeline = [
+    ['ZREMRANGEBYSCORE', key, '-inf', String(windowStart)],
+    ['ZADD', key, String(now), `${now}-${Math.random()}`],
+    ['ZCARD', key],
+    ['EXPIRE', key, String(RATE_LIMIT_WINDOW * 2)],
+  ]
+
+  const res = await fetch(redisUrl('/pipeline'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(pipeline),
+    cache: 'no-store',
+  })
+
+  const results = await res.json() as Array<{ result: unknown }>
+  const count = results[2]?.result as number ?? 0
+
+  if (count > RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: RATE_LIMIT_WINDOW }
+  }
+  return { allowed: true }
+}

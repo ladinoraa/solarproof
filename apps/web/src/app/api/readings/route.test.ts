@@ -19,8 +19,10 @@ vi.mock('@/lib/stellar', () => ({
   anchorReading: vi.fn().mockResolvedValue('anchor_tx_abc'),
   mintCertificates: vi.fn().mockResolvedValue('mint_tx_abc'),
 }))
-vi.mock('@/lib/cache', () => ({ invalidateCert: vi.fn().mockResolvedValue(undefined) }))
-
+vi.mock('@/lib/cache', () => ({
+  invalidateCert: vi.fn().mockResolvedValue(undefined),
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, retryAfter: 0 }),
+}))
 import { createServiceClient } from '@/lib/supabase'
 import { POST } from '@/app/api/readings/route'
 
@@ -44,13 +46,15 @@ const TIMESTAMP = 1_700_000_000
 /** Build a valid signed reading body using the given private key. */
 async function makeBody(privKey: Uint8Array, overrides: Record<string, unknown> = {}) {
   const kwhStroops = kwhToStroops(KWH)
-  const hash = computeReadingHash(METER_ID, kwhStroops, BigInt(TIMESTAMP))
+  const currentTimestamp = overrides.timestamp as number ?? Math.floor(Date.now() / 1000)
+  const hash = computeReadingHash(METER_ID, kwhStroops, BigInt(currentTimestamp))
   const sig = await sign(hash, privKey)
   return {
     meter_id: METER_ID,
     kwh: KWH,
-    timestamp: TIMESTAMP,
+    timestamp: currentTimestamp,
     signature_hex: Buffer.from(sig).toString('hex'),
+    nonce: 'test_nonce_123',
     ...overrides,
   }
 }
@@ -82,6 +86,26 @@ function mockDb(meter: unknown) {
       if (table === 'meters') return { select }
       if (table === 'readings') return { insert, update }
       if (table === 'certificates') return { insert: certInsert }
+      if (table === 'idempotency_keys') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({}),
+          }),
+        }
+      }
+      if (table === 'webhook_endpoints') {
+        const contains = vi.fn().mockResolvedValue({ data: [] })
+        const eq2 = vi.fn().mockReturnValue({ contains })
+        const eq1 = vi.fn().mockReturnValue({ eq: eq2 })
+        return {
+          select: vi.fn().mockReturnValue({ eq: eq1 }),
+        }
+      }
       return {}
     }),
   } as ReturnType<typeof createServiceClient>)
@@ -103,17 +127,17 @@ describe('POST /api/readings', () => {
   })
 
   it('returns 400 when meter_id is missing', async () => {
-    const res = await POST(makeRequest({ kwh: 1, timestamp: TIMESTAMP, signature_hex: 'a'.repeat(128) }))
+    const res = await POST(makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128) }))
     expect(res.status).toBe(400)
   })
 
   it('returns 400 when kwh is negative', async () => {
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: -1, timestamp: TIMESTAMP, signature_hex: 'a'.repeat(128) }))
+    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: -1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128) }))
     expect(res.status).toBe(400)
   })
 
   it('returns 400 when signature_hex is wrong length', async () => {
-    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: 'deadbeef' }))
+    const res = await POST(makeRequest({ meter_id: METER_ID, kwh: KWH, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'deadbeef' }))
     expect(res.status).toBe(400)
   })
 
@@ -147,7 +171,7 @@ describe('POST /api/readings', () => {
   it('returns 401 when signature_hex is all zeros (invalid)', async () => {
     const { pubKeyHex } = await makeKeypair()
     mockDb({ id: METER_ID, pubkey_hex: pubKeyHex, cooperative_id: 'coop-1', cooperatives: { admin_address: 'GADMIN' } })
-    const body = { meter_id: METER_ID, kwh: KWH, timestamp: TIMESTAMP, signature_hex: '0'.repeat(128) }
+    const body = { meter_id: METER_ID, kwh: KWH, timestamp: Math.floor(Date.now() / 1000), signature_hex: '0'.repeat(128), nonce: 'test_nonce_123' }
     const res = await POST(makeRequest(body))
     expect(res.status).toBe(401)
   })
@@ -176,7 +200,7 @@ describe('POST /api/readings', () => {
 
     expect(anchorReading).toHaveBeenCalledOnce()
     const callArg = vi.mocked(anchorReading).mock.calls[0][0]
-    const expectedHash = computeReadingHash(METER_ID, kwhToStroops(KWH), BigInt(TIMESTAMP))
+    const expectedHash = computeReadingHash(METER_ID, kwhToStroops(KWH), BigInt(body.timestamp))
     expect(Buffer.from(callArg.readingHash).toString('hex')).toBe(expectedHash.toString('hex'))
   })
 })

@@ -2,7 +2,7 @@ import { createHmac } from 'crypto'
 import { createServiceClient } from '@/lib/supabase'
 import type { Json } from '@/lib/database.types'
 
-export type WebhookEvent = 'anchor' | 'mint' | 'retire'
+export type WebhookEvent = 'anchor' | 'mint' | 'retire' | 'mint_failed'
 
 export interface WebhookPayload {
   event: WebhookEvent

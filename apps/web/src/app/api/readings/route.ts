@@ -5,10 +5,11 @@ import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
-import { invalidateCert } from '@/lib/cache'
+import { invalidateCert, checkRateLimit } from '@/lib/cache'
 import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
-import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
+import { requireAuth, isAuthError } from '@/lib/auth'
+import { diagnoseMintFailure } from '@/lib/tracer-sim'
 
 const MAX_PAGE_SIZE = 100
 
@@ -17,8 +18,12 @@ const MAX_PAGE_SIZE = 100
  *
  * Cursor-based pagination via `cursor` (ISO timestamp) and `limit` (max 100).
  * Returns `{ data, next_cursor, total }`.
+ * Requires operator JWT.
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (isAuthError(auth)) return auth
+
   const { searchParams } = req.nextUrl
   const limit = Math.min(Number(searchParams.get('limit') ?? 20), MAX_PAGE_SIZE)
   const cursor = searchParams.get('cursor') // ISO timestamp of last seen row
@@ -71,7 +76,7 @@ const ReadingSchema = z.object({
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
   signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
-  nonce: z.string().min(1).max(128).optional(),
+  nonce: z.string().min(1).max(128),      // Required for replay protection
 })
 
 /**
@@ -110,6 +115,31 @@ export async function POST(req: NextRequest) {
   const { meter_id, kwh, timestamp, signature_hex } = parsed.data
   const db = createServiceClient()
 
+  // Timestamp check: reject if >5 minutes old
+  const ageMs = Date.now() - (timestamp * 1000)
+  if (ageMs > 5 * 60 * 1000 || ageMs < -60 * 1000) {
+    log.warn('readings.post.stale_timestamp', { meter_id, timestamp })
+    return NextResponse.json({ error: 'Reading timestamp is too old or in the future' }, { status: 400 })
+  }
+
+  // Idempotency check: return cached response if nonce was seen within 24 h
+  if (nonce) {
+    const { data: existing } = await db
+      .from('idempotency_keys')
+      .select('response, created_at')
+      .eq('nonce', nonce)
+      .single()
+
+    if (existing) {
+      const age = Date.now() - new Date(existing.created_at).getTime()
+      if (age < NONCE_TTL_MS) {
+        return NextResponse.json(existing.response, { status: 200 })
+      }
+      // Expired — delete and allow re-processing
+      await db.from('idempotency_keys').delete().eq('nonce', nonce)
+    }
+  }
+
   // Fetch meter + cooperative
   const { data: meter } = await db
     .from('meters')
@@ -121,6 +151,16 @@ export async function POST(req: NextRequest) {
   if (!meter) {
     log.warn('readings.post.meter_not_found', { meter_id })
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
+  }
+
+  // Rate limit: 60 requests/minute per meter public key
+  const rl = await checkRateLimit(meter.pubkey_hex)
+  if (!rl.allowed) {
+    log.warn('readings.post.rate_limited', { meter_id })
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } }
+    )
   }
 
   // Compute canonical reading hash
@@ -162,7 +202,7 @@ export async function POST(req: NextRequest) {
   // Anchor on-chain (hash only — full payload already in Supabase)
   let anchorTxHash: string
   try {
-    anchorTxHash = await anchorReading({ readingHash })
+    anchorTxHash = await anchorReading({ readingHash, nonce })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
     log.info('readings.post.anchored', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
     void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
@@ -209,6 +249,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Mint failed'
     log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
-    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash }, { status: 500 })
+    const diagnosis = await diagnoseMintFailure(reading.id, meter.cooperative_id, message)
+    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash, diagnosis }, { status: 500 })
   }
 }

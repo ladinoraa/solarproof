@@ -4,6 +4,9 @@ import { z } from 'zod'
 export const env = createEnv({
   server: {
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    // Comma-separated list of allowed CORS origins.
+    // Example: https://solarproof.vercel.app,https://staging.solarproof.vercel.app
+    CORS_ALLOWED_ORIGINS: z.string().optional(),
     // Secrets Manager ARN for the active minter key (production)
     MINTER_SECRET_ARN: z.string().min(1).optional(),
     // ARN of the previous key — set during the 24-h rotation grace window
@@ -23,6 +26,7 @@ export const env = createEnv({
   },
   runtimeEnv: {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS,
     MINTER_SECRET_ARN: process.env.MINTER_SECRET_ARN,
     MINTER_PREVIOUS_SECRET_ARN: process.env.MINTER_PREVIOUS_SECRET_ARN,
     MINTER_SECRET_KEY: process.env.MINTER_SECRET_KEY,

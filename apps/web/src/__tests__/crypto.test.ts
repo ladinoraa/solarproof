@@ -85,7 +85,7 @@ describe('Ed25519 signature verification', () => {
     const { privKey } = await makeKeypair()
     const { sig, hash } = await signReading(privKey, METER_ID, KWH, TIMESTAMP)
     const badPubKey = new Uint8Array(16) // too short
-    await expect(ed.verifyAsync(sig, hash, badPubKey)).resolves.toBe(false)
+    await expect(ed.verifyAsync(sig, hash, badPubKey)).rejects.toThrow()
   })
 
   it('computeReadingHash is deterministic', () => {

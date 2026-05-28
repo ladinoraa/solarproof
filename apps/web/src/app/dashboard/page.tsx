@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { WalletGate } from '@/components/wallet-gate'
 import {
   AreaChart,
   Area,
@@ -14,9 +15,10 @@ import {
   Legend,
 } from 'recharts'
 import { useTheme } from 'next-themes'
-import { Zap, Award, Leaf, TrendingUp, Download } from 'lucide-react'
+import { Zap, Award, Leaf, TrendingUp, Download, Wifi, WifiOff } from 'lucide-react'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
 import { useState } from 'react'
+import { useRealtimeReadings } from '@/hooks/use-realtime-readings'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,6 +161,7 @@ function exportCsv(rows: { date: string; kwh: number }[], filename: string) {
 // ---------------------------------------------------------------------------
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('daily')
+  const { isConnected, error: wsError } = useRealtimeReadings()
 
   const {
     data: stats,
@@ -170,15 +173,40 @@ export default function DashboardPage() {
     data: readings,
     isLoading: readingsLoading,
     error: readingsError,
-  } = useQuery({ queryKey: ['readings'], queryFn: fetchReadings })
+  } = useQuery({ 
+    queryKey: ['readings'], 
+    queryFn: fetchReadings,
+    // Fallback to polling every 30s if WebSocket is not connected
+    refetchInterval: isConnected ? false : 30000,
+  })
 
   const colors = useChartColors()
   const chartData = readings ? groupByPeriod(readings, period) : []
   const meterData = readings ? groupByMeter(readings) : []
 
   return (
+    <WalletGate>
     <div className="mx-auto max-w-7xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
+        
+        {/* Connection status indicator */}
+        <div className="flex items-center gap-2">
+          {isConnected ? (
+            <>
+              <Wifi className="h-4 w-4 text-green-500" aria-hidden="true" />
+              <span className="text-xs text-gray-600 dark:text-gray-400">Live</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-4 w-4 text-gray-400" aria-hidden="true" />
+              <span className="text-xs text-gray-600 dark:text-gray-400">
+                {wsError ? 'Offline' : 'Connecting...'}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Stat cards */}
       <section aria-labelledby="stats-heading" className="mb-8">
@@ -198,7 +226,6 @@ export default function DashboardPage() {
             </>
           ) : null}
         </div>
-        </ErrorBoundary>
       </section>
 
       {/* Charts */}
@@ -313,7 +340,6 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        </ErrorBoundary>
       </section>
 
       {/* Recent readings table */}
@@ -344,8 +370,12 @@ export default function DashboardPage() {
                 {readingsLoading ? (
                   <><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /></>
                 ) : readings && readings.length > 0 ? (
-                  readings.slice(0, 20).map((r) => (
-                    <tr key={r.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                  readings.slice(0, 20).map((r, index) => (
+                    <tr 
+                      key={r.id} 
+                      className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40 animate-in fade-in slide-in-from-top-2 duration-300"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
                       <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">{r.meter_id}</td>
                       <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.kwh}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{new Date(r.timestamp).toLocaleString()}</td>
@@ -365,8 +395,8 @@ export default function DashboardPage() {
             </table>
           </div>
         </div>
-        </ErrorBoundary>
       </section>
     </div>
+    </WalletGate>
   )
 }

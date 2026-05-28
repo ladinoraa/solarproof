@@ -61,7 +61,13 @@ impl MultisigAdmin {
     /// # Panics
     /// * `"already initialized"` if called more than once.
     /// * `"threshold must be 1-3"` if threshold is out of range.
-    pub fn initialize(env: Env, signer0: Address, signer1: Address, signer2: Address, threshold: u32) {
+    pub fn initialize(
+        env: Env,
+        signer0: Address,
+        signer1: Address,
+        signer2: Address,
+        threshold: u32,
+    ) {
         if env.storage().instance().has(&DataKey::Threshold) {
             panic!("already initialized");
         }
@@ -69,7 +75,9 @@ impl MultisigAdmin {
         env.storage().instance().set(&DataKey::Signer(0), &signer0);
         env.storage().instance().set(&DataKey::Signer(1), &signer1);
         env.storage().instance().set(&DataKey::Signer(2), &signer2);
-        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Threshold, &threshold);
         env.storage().instance().set(&DataKey::OpCount, &0_u32);
     }
 
@@ -85,14 +93,21 @@ impl MultisigAdmin {
         let idx = Self::signer_index(&env, &proposer);
 
         let op_id: u32 = env.storage().instance().get(&DataKey::OpCount).unwrap_or(0);
-        let op = Op { call_data, executed: false };
+        let op = Op {
+            call_data,
+            executed: false,
+        };
         env.storage().instance().set(&DataKey::Op(op_id), &op);
 
         // Auto-approve for proposer
         let bitmap: u32 = 1 << idx;
-        env.storage().instance().set(&DataKey::Approvals(op_id), &bitmap);
+        env.storage()
+            .instance()
+            .set(&DataKey::Approvals(op_id), &bitmap);
 
-        env.storage().instance().set(&DataKey::OpCount, &(op_id + 1));
+        env.storage()
+            .instance()
+            .set(&DataKey::OpCount, &(op_id + 1));
         env.events().publish((symbol_short!("proposed"),), op_id);
 
         // Execute immediately if threshold already met (e.g. threshold = 1)
@@ -114,15 +129,26 @@ impl MultisigAdmin {
         signer.require_auth();
         let idx = Self::signer_index(&env, &signer);
 
-        let op: Op = env.storage().instance().get(&DataKey::Op(op_id)).expect("op not found");
+        let op: Op = env
+            .storage()
+            .instance()
+            .get(&DataKey::Op(op_id))
+            .expect("op not found");
         assert!(!op.executed, "already executed");
 
-        let mut bitmap: u32 = env.storage().instance().get(&DataKey::Approvals(op_id)).unwrap_or(0);
+        let mut bitmap: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Approvals(op_id))
+            .unwrap_or(0);
         assert!((bitmap >> idx) & 1 == 0, "already approved");
 
         bitmap |= 1 << idx;
-        env.storage().instance().set(&DataKey::Approvals(op_id), &bitmap);
-        env.events().publish((symbol_short!("approved"),), (op_id, idx));
+        env.storage()
+            .instance()
+            .set(&DataKey::Approvals(op_id), &bitmap);
+        env.events()
+            .publish((symbol_short!("approved"),), (op_id, idx));
 
         if Self::approval_count(bitmap) >= Self::threshold(&env) {
             Self::mark_executed(&env, op_id);
@@ -149,24 +175,42 @@ impl MultisigAdmin {
     ) -> u32 {
         proposer.require_auth();
         let idx = Self::signer_index(&env, &proposer);
-        assert!(new_threshold >= 1 && new_threshold <= 3, "threshold must be 1-3");
+        assert!(
+            new_threshold >= 1 && new_threshold <= 3,
+            "threshold must be 1-3"
+        );
 
         // Inline op creation (cannot call propose() — would double require_auth).
         let op_id: u32 = env.storage().instance().get(&DataKey::OpCount).unwrap_or(0);
         let mut data = Bytes::new(&env);
         data.push_back(0x01_u8); // rotation tag
-        let op = Op { call_data: data, executed: false };
+        let op = Op {
+            call_data: data,
+            executed: false,
+        };
         env.storage().instance().set(&DataKey::Op(op_id), &op);
 
         let bitmap: u32 = 1 << idx;
-        env.storage().instance().set(&DataKey::Approvals(op_id), &bitmap);
-        env.storage().instance().set(&DataKey::OpCount, &(op_id + 1));
+        env.storage()
+            .instance()
+            .set(&DataKey::Approvals(op_id), &bitmap);
+        env.storage()
+            .instance()
+            .set(&DataKey::OpCount, &(op_id + 1));
 
         // Store the new signer set alongside the op so execute_rotate can apply it.
-        env.storage().instance().set(&DataKey::Signer(op_id * 10 + 3), &new0);
-        env.storage().instance().set(&DataKey::Signer(op_id * 10 + 4), &new1);
-        env.storage().instance().set(&DataKey::Signer(op_id * 10 + 5), &new2);
-        env.storage().instance().set(&(symbol_short!("rot_thr"), op_id), &new_threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Signer(op_id * 10 + 3), &new0);
+        env.storage()
+            .instance()
+            .set(&DataKey::Signer(op_id * 10 + 4), &new1);
+        env.storage()
+            .instance()
+            .set(&DataKey::Signer(op_id * 10 + 5), &new2);
+        env.storage()
+            .instance()
+            .set(&(symbol_short!("rot_thr"), op_id), &new_threshold);
 
         env.events().publish((symbol_short!("proposed"),), op_id);
 
@@ -182,21 +226,50 @@ impl MultisigAdmin {
     /// * `"not a rotation op"` if the op was not created by `propose_rotate`.
     /// * `"threshold not met"` if the op has not been approved by enough signers.
     pub fn execute_rotate(env: Env, op_id: u32) {
-        let op: Op = env.storage().instance().get(&DataKey::Op(op_id)).expect("op not found");
+        let op: Op = env
+            .storage()
+            .instance()
+            .get(&DataKey::Op(op_id))
+            .expect("op not found");
         assert!(op.call_data.get(0) == Some(0x01_u8), "not a rotation op");
 
-        let bitmap: u32 = env.storage().instance().get(&DataKey::Approvals(op_id)).unwrap_or(0);
-        assert!(Self::approval_count(bitmap) >= Self::threshold(&env), "threshold not met");
+        let bitmap: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Approvals(op_id))
+            .unwrap_or(0);
+        assert!(
+            Self::approval_count(bitmap) >= Self::threshold(&env),
+            "threshold not met"
+        );
 
-        let new0: Address = env.storage().instance().get(&DataKey::Signer(op_id * 10 + 3)).expect("op not found");
-        let new1: Address = env.storage().instance().get(&DataKey::Signer(op_id * 10 + 4)).expect("op not found");
-        let new2: Address = env.storage().instance().get(&DataKey::Signer(op_id * 10 + 5)).expect("op not found");
-        let new_threshold: u32 = env.storage().instance().get(&(symbol_short!("rot_thr"), op_id)).expect("op not found");
+        let new0: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Signer(op_id * 10 + 3))
+            .expect("op not found");
+        let new1: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Signer(op_id * 10 + 4))
+            .expect("op not found");
+        let new2: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Signer(op_id * 10 + 5))
+            .expect("op not found");
+        let new_threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("rot_thr"), op_id))
+            .expect("op not found");
 
         env.storage().instance().set(&DataKey::Signer(0), &new0);
         env.storage().instance().set(&DataKey::Signer(1), &new1);
         env.storage().instance().set(&DataKey::Signer(2), &new2);
-        env.storage().instance().set(&DataKey::Threshold, &new_threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Threshold, &new_threshold);
 
         env.events().publish((symbol_short!("rotated"),), op_id);
     }
@@ -205,17 +278,26 @@ impl MultisigAdmin {
 
     /// Returns the pending operation with the given ID, or panics if not found.
     pub fn get_op(env: Env, op_id: u32) -> Op {
-        env.storage().instance().get(&DataKey::Op(op_id)).expect("op not found")
+        env.storage()
+            .instance()
+            .get(&DataKey::Op(op_id))
+            .expect("op not found")
     }
 
     /// Returns the approval bitmap for an operation (bit i = signer i approved).
     pub fn get_approvals(env: Env, op_id: u32) -> u32 {
-        env.storage().instance().get(&DataKey::Approvals(op_id)).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::Approvals(op_id))
+            .unwrap_or(0)
     }
 
     /// Returns the signer at the given index (0, 1, or 2).
     pub fn get_signer(env: Env, index: u32) -> Address {
-        env.storage().instance().get(&DataKey::Signer(index)).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Signer(index))
+            .expect("not initialized")
     }
 
     /// Returns the current approval threshold.
@@ -231,14 +313,21 @@ impl MultisigAdmin {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     fn threshold(env: &Env) -> u32 {
-        env.storage().instance().get(&DataKey::Threshold).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .expect("not initialized")
     }
 
     /// Returns the index (0, 1, or 2) of `addr` in the signer set.
     /// Panics with `"not a signer"` if not found.
     fn signer_index(env: &Env, addr: &Address) -> u32 {
         for i in 0u32..3 {
-            let s: Address = env.storage().instance().get(&DataKey::Signer(i)).expect("not initialized");
+            let s: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Signer(i))
+                .expect("not initialized");
             if s == *addr {
                 return i;
             }
@@ -253,7 +342,11 @@ impl MultisigAdmin {
 
     /// Mark an operation as executed and emit an event.
     fn mark_executed(env: &Env, op_id: u32) {
-        let mut op: Op = env.storage().instance().get(&DataKey::Op(op_id)).expect("op not found");
+        let mut op: Op = env
+            .storage()
+            .instance()
+            .get(&DataKey::Op(op_id))
+            .expect("op not found");
         op.executed = true;
         env.storage().instance().set(&DataKey::Op(op_id), &op);
         env.events().publish((symbol_short!("executed"),), op_id);
