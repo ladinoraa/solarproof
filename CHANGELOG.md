@@ -1,3 +1,15 @@
+## [1.7.0](https://github.com/AnnabelJoe/solarproof/compare/v1.6.0...v1.7.0) (2026-05-28)
+
+### Features
+
+* **#145:** add Stellar explorer deep links for all on-chain transactions ([ccb13da](https://github.com/AnnabelJoe/solarproof/commit/ccb13da0009895ef035d757374743c9c48e01253)), closes [#145](https://github.com/AnnabelJoe/solarproof/issues/145)
+
+### Documentation
+
+* add JSDoc to all public API functions ([#316](https://github.com/AnnabelJoe/solarproof/issues/316)) ([eca0923](https://github.com/AnnabelJoe/solarproof/commit/eca092377c187939d87c11badd06ea8ad06e433f))
+* complete OpenAPI 3.0 spec for all API endpoints ([#307](https://github.com/AnnabelJoe/solarproof/issues/307)) ([e15d906](https://github.com/AnnabelJoe/solarproof/commit/e15d9065f074f1cc04ebd546fbbc3400b24ab29d))
+* document public verifier API for third-party integrations ([#313](https://github.com/AnnabelJoe/solarproof/issues/313)) ([9eb74ff](https://github.com/AnnabelJoe/solarproof/commit/9eb74ff518784611745ea27a1bc6c016b5086a06))
+
 ## [1.6.0](https://github.com/AnnabelJoe/solarproof/compare/v1.5.0...v1.6.0) (2026-05-28)
 
 ### Features
