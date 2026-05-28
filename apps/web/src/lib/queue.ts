@@ -12,7 +12,18 @@ export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
 
 const MAX_ATTEMPTS = 3
 
-/** Enqueue a job and return its ID. */
+/**
+ * Enqueue a background job and return its ID.
+ *
+ * The job is persisted to Supabase and then processed asynchronously
+ * (fire-and-forget). The caller receives the job ID immediately and can
+ * poll `GET /api/jobs/[id]` for completion status.
+ *
+ * @param type - Job type identifier (e.g. `'anchor_and_mint'`).
+ * @param payload - Serialisable job payload passed to the handler.
+ * @returns UUID of the newly created job record.
+ * @throws If the Supabase insert fails.
+ */
 export async function enqueue(type: JobType, payload: Record<string, unknown>): Promise<string> {
   const db = createServiceClient()
   const { data, error } = await db
@@ -31,7 +42,14 @@ export async function enqueue(type: JobType, payload: Record<string, unknown>): 
   return data.id
 }
 
-/** Process a single job by ID. Retries up to MAX_ATTEMPTS on failure. */
+/**
+ * Process a single job by ID, retrying up to `MAX_ATTEMPTS` times on failure.
+ *
+ * Retries use exponential back-off (2 s, 4 s, 8 s). After all attempts are
+ * exhausted the job is marked `'failed'` and no further retries occur.
+ *
+ * @param jobId - UUID of the job record to process.
+ */
 export async function processJob(jobId: string): Promise<void> {
   const db = createServiceClient()
 

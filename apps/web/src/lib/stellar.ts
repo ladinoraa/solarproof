@@ -60,7 +60,14 @@ function recordFailure(correlationId: string) {
   }
 }
 
-/** Wrap a promise with a timeout. Throws StellarTimeoutError on expiry. */
+/**
+ * Wrap a promise with a timeout.
+ *
+ * @param promise - The promise to race against the timeout.
+ * @param correlationId - Identifier used in the thrown error for tracing.
+ * @returns Resolves with the promise value if it settles before the timeout.
+ * @throws {StellarTimeoutError} If the promise does not settle within `RPC_TIMEOUT_MS`.
+ */
 async function withTimeout<T>(promise: Promise<T>, correlationId: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
   const timeout = new Promise<never>((_, reject) => {
@@ -76,7 +83,15 @@ async function withTimeout<T>(promise: Promise<T>, correlationId: string): Promi
   }
 }
 
-/** Execute an RPC call with timeout + circuit breaker. */
+/**
+ * Execute an RPC call with timeout and circuit-breaker protection.
+ *
+ * @param fn - Factory that returns the RPC promise to execute.
+ * @param correlationId - Identifier propagated to timeout errors and logs.
+ * @returns The resolved value of `fn()`.
+ * @throws {CircuitOpenError} When the circuit breaker is open.
+ * @throws {StellarTimeoutError} When the call exceeds `RPC_TIMEOUT_MS`.
+ */
 async function rpcCall<T>(fn: () => Promise<T>, correlationId: string): Promise<T> {
   checkCircuit()
   try {
@@ -95,7 +110,7 @@ async function rpcCall<T>(fn: () => Promise<T>, correlationId: string): Promise<
 const BACKOFF_MS = [1_000, 2_000, 4_000]
 const MAX_RETRIES = 3
 
-/** Return a Soroban RPC server pointed at the testnet endpoint. */
+/** Return a Soroban RPC server pointed at the configured testnet endpoint. */
 function getServer() {
   return new SorobanRpc.Server(env.NEXT_PUBLIC_STELLAR_RPC_URL)
 }
@@ -117,7 +132,18 @@ async function submitTx(
 }
 
 /**
- * Anchor a reading hash in the audit_registry contract.
+ * Anchor a reading hash in the `audit_registry` Soroban contract.
+ *
+ * Derives a 32-byte nonce hash from `params.nonce` (SHA-256) and calls
+ * `audit_registry.anchor(reading_hash, nonce_hash)`. The nonce prevents
+ * duplicate anchors for the same reading hash.
+ *
+ * @param params.readingHash - 32-byte SHA-256 digest of the canonical reading.
+ * @param params.nonce - Optional idempotency nonce; hashed before submission.
+ * @param params.correlationId - Optional trace ID for logs and error messages.
+ * @returns Stellar transaction hash of the anchor transaction.
+ * @throws {CircuitOpenError} When the Stellar RPC circuit breaker is open.
+ * @throws {StellarTimeoutError} When an RPC call exceeds the timeout.
  */
 export async function anchorReading(params: {
   readingHash: Buffer
@@ -143,7 +169,16 @@ export async function anchorReading(params: {
   return submitTx(tx, minter, correlationId)
 }
 
-/** Retire energy certificates on-chain. */
+/**
+ * Retire energy certificates on-chain by calling `energy_token.retire`.
+ *
+ * @param ownerAddress - Stellar G-address of the certificate holder.
+ * @param kwh - Amount to retire in kilowatt-hours (converted to stroops internally).
+ * @param correlationId - Optional trace ID for logs and error messages.
+ * @returns Stellar transaction hash of the retire transaction.
+ * @throws {CircuitOpenError} When the Stellar RPC circuit breaker is open.
+ * @throws {StellarTimeoutError} When an RPC call exceeds the timeout.
+ */
 export async function retireCertificate(
   ownerAddress: string,
   kwh: number,
@@ -201,7 +236,19 @@ export async function assertMintable(recipientAddress: string): Promise<void> {
   }
 }
 
-/** Mint energy certificates after a successful anchor. */
+/**
+ * Mint energy certificates after a successful anchor.
+ *
+ * Calls `energy_token.mint(recipient, amount_in_stroops)`. The recipient
+ * must have an established trustline — call `assertMintable` first if unsure.
+ *
+ * @param recipientAddress - Stellar G-address that will receive the tokens.
+ * @param kwh - Energy amount in kilowatt-hours (converted to stroops internally).
+ * @param correlationId - Optional trace ID for logs and error messages.
+ * @returns Stellar transaction hash of the mint transaction.
+ * @throws {CircuitOpenError} When the Stellar RPC circuit breaker is open.
+ * @throws {StellarTimeoutError} When an RPC call exceeds the timeout.
+ */
 export async function mintCertificates(
   recipientAddress: string,
   kwh: number,

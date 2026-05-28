@@ -47,20 +47,44 @@ async function redisDel(key: string): Promise<void> {
   console.log(`[cache] DEL ${key}`)
 }
 
+/**
+ * Build the Redis key for a certificate cache entry.
+ *
+ * @param id - Certificate UUID, reading hash, or mint transaction hash.
+ * @returns Redis key string in the form `cert:<id>`.
+ */
 export function certCacheKey(id: string) {
   return `cert:${id}`
 }
 
+/**
+ * Retrieve a cached certificate chain-of-custody from Redis.
+ *
+ * @param id - Certificate UUID, reading hash, or mint transaction hash.
+ * @returns The cached value, or `null` on a cache miss or when Redis is unavailable.
+ */
 export async function getCachedCert<T>(id: string): Promise<T | null> {
   const hit = await redisGet<T>(certCacheKey(id))
   if (!hit) console.log(`[cache] MISS ${certCacheKey(id)}`)
   return hit
 }
 
+/**
+ * Store a certificate chain-of-custody in Redis with a 60-second TTL.
+ *
+ * @param id - Cache key (certificate UUID, reading hash, or mint tx hash).
+ * @param value - Serialisable chain-of-custody object to cache.
+ */
 export async function setCachedCert(id: string, value: unknown): Promise<void> {
   await redisSet(certCacheKey(id), value, CERT_TTL)
 }
 
+/**
+ * Delete one or more certificate cache entries from Redis.
+ * Called after a mint or retirement to prevent stale data being served.
+ *
+ * @param ids - One or more cache keys to invalidate.
+ */
 export async function invalidateCert(...ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => redisDel(certCacheKey(id))))
 }
