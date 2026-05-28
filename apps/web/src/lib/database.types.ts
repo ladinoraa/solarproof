@@ -12,10 +12,10 @@ export interface Database {
       meters: {
         Row: {
           id: string; cooperative_id: string; serial_number: string
-          pubkey_hex: string; active: boolean; created_at: string
+          name: string; pubkey_hex: string; active: boolean; created_at: string
         }
-        Insert: { cooperative_id: string; serial_number: string; pubkey_hex: string; active: boolean }
-        Update: Partial<{ cooperative_id: string; serial_number: string; pubkey_hex: string; active: boolean }>
+        Insert: { cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean }
+        Update: Partial<{ cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean }>
         Relationships: []
       }
       readings: {
@@ -24,18 +24,21 @@ export interface Database {
           reading_hash: string; signature_hex: string
           anchor_tx_hash: string | null; mint_tx_hash: string | null
           anchored: boolean; minted: boolean
+          mint_diagnosis: Json | null
         }
         Insert: {
           meter_id: string; kwh: number; timestamp: string
           reading_hash: string; signature_hex: string
           anchor_tx_hash?: string | null; mint_tx_hash?: string | null
           anchored: boolean; minted: boolean
+          mint_diagnosis?: Json | null
         }
         Update: Partial<{
           meter_id: string; kwh: number; timestamp: string
           reading_hash: string; signature_hex: string
           anchor_tx_hash: string | null; mint_tx_hash: string | null
           anchored: boolean; minted: boolean
+          mint_diagnosis: Json | null
         }>
         Relationships: []
       }
