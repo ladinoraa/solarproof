@@ -23,9 +23,14 @@ function getClientIp(req: NextRequest): string | null {
 }
 
 /**
- * Append an entry to the audit_log table.
- * Failures are logged to stderr but never thrown — audit must not block the
- * primary request path.
+ * Append an entry to the `audit_log` table.
+ *
+ * Captures the client IP from `x-forwarded-for` or `x-real-ip` headers.
+ * Failures are logged to stderr but never thrown — audit logging must not
+ * block or fail the primary request path.
+ *
+ * @param req - Incoming Next.js request (used to extract the client IP).
+ * @param entry - Audit entry containing operator, action, and optional metadata.
  */
 export async function auditLog(req: NextRequest, entry: AuditEntry): Promise<void> {
   try {
