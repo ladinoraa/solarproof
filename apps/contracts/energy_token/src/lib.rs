@@ -780,6 +780,98 @@ mod tests {
         assert_eq!(client.admin(), admin);
     }
 
+    // ── access control tests ─────────────────────────────────────────────────
+
+    /// Unauthorized caller cannot mint — auth is required from the registered minter.
+    /// Soroban enforces this: calling without the minter's auth causes a host error.
+    #[test]
+    #[should_panic]
+    fn test_mint_unauthorized_caller_panics() {
+        let env = Env::default();
+        // Do NOT mock_all_auths — real auth enforcement
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        // Initialize: mock only the initialize call
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &admin,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &id,
+                fn_name: "initialize",
+                args: (&admin, &minter).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        client.initialize(&admin, &minter);
+
+        // No auth mocked for mint — must panic (host auth failure)
+        client.mint(&recipient, &100_i128);
+    }
+
+    /// Authorized minter can mint successfully.
+    #[test]
+    fn test_mint_succeeds_with_minter_auth() {
+        let env = Env::default();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.mock_auths(&[
+            soroban_sdk::testutils::MockAuth {
+                address: &admin,
+                invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                    contract: &id,
+                    fn_name: "initialize",
+                    args: (&admin, &minter).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+            soroban_sdk::testutils::MockAuth {
+                address: &minter,
+                invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                    contract: &id,
+                    fn_name: "mint",
+                    args: (&recipient, &500_i128).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+        ]);
+        client.initialize(&admin, &minter);
+        client.mint(&recipient, &500_i128);
+        assert_eq!(client.balance(&recipient), 500_i128);
+    }
+
+    /// Non-admin cannot call set_minter — host auth failure causes a panic.
+    #[test]
+    #[should_panic]
+    fn test_set_minter_unauthorized_caller_panics() {
+        let env = Env::default();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let new_minter = Address::generate(&env);
+
+        env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &admin,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &id,
+                fn_name: "initialize",
+                args: (&admin, &minter).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        client.initialize(&admin, &minter);
+
+        // No auth mocked for set_minter — must panic
+        client.set_minter(&new_minter);
+    }
+
     // ── retire tests ─────────────────────────────────────────────────────────
 
     #[test]
