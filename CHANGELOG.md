@@ -1,3 +1,13 @@
+## [1.6.0](https://github.com/AnnabelJoe/solarproof/compare/v1.5.0...v1.6.0) (2026-05-28)
+
+### Features
+
+* implement SEP-41 approve/allowance/transfer_from ([#286](https://github.com/AnnabelJoe/solarproof/issues/286)) ([e3c6fce](https://github.com/AnnabelJoe/solarproof/commit/e3c6fcec3bb7bc1b11178bae340749d944836123))
+
+### Documentation
+
+* document Ed25519 meter signing protocol and key lifecycle ([#309](https://github.com/AnnabelJoe/solarproof/issues/309)) ([cbfd1be](https://github.com/AnnabelJoe/solarproof/commit/cbfd1be6e720bc1c19c08d0597259576e8bf6b77))
+
 ## [1.5.0](https://github.com/AnnabelJoe/solarproof/compare/v1.4.0...v1.5.0) (2026-05-28)
 
 ### Features
