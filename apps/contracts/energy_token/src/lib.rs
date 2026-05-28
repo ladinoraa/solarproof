@@ -81,6 +81,48 @@ impl EnergyToken {
         env.events().publish((symbol_short!("transfer"),), (from, to, amount));
     }
 
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        spender.require_auth();
+        assert!(amount > 0, "amount must be positive");
+
+        // Deduct allowance
+        let ak = (symbol_short!("allow"), from.clone(), spender.clone());
+        let allowance: i128 = env.storage().temporary().get(&ak).unwrap_or(0);
+        assert!(allowance >= amount, "insufficient allowance");
+        env.storage().temporary().set(&ak, &(allowance - amount));
+
+        let fk = (symbol_short!("balance"), from.clone());
+        let fb: i128 = env.storage().persistent().get(&fk).expect("no balance");
+        assert!(fb >= amount, "insufficient balance");
+
+        let tk = (symbol_short!("balance"), to.clone());
+        let tb: i128 = env.storage().persistent().get(&tk).unwrap_or(0);
+
+        env.storage().persistent().set(&fk, &(fb - amount));
+        env.storage().persistent().set(&tk, &(tb + amount));
+        env.events().publish((symbol_short!("transfer"),), (from, to, amount));
+    }
+
+    /// SEP-41: approve spender to transfer up to `amount` from `from`.
+    pub fn approve(env: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        assert!(amount >= 0, "amount must be non-negative");
+        let ak = (symbol_short!("allow"), from.clone(), spender.clone());
+        if amount == 0 {
+            env.storage().temporary().remove(&ak);
+        } else {
+            env.storage().temporary().set(&ak, &amount);
+            env.storage().temporary().extend_ttl(&ak, expiration_ledger, expiration_ledger);
+        }
+        env.events().publish((symbol_short!("approve"),), (from, spender, amount, expiration_ledger));
+    }
+
+    /// SEP-41: returns the approved allowance for `spender` over `from`'s tokens.
+    pub fn allowance(env: Env, from: Address, spender: Address) -> i128 {
+        let ak = (symbol_short!("allow"), from, spender);
+        env.storage().temporary().get(&ak).unwrap_or(0)
+    }
+
     pub fn balance(env: Env, account: Address) -> i128 {
         env.storage().persistent().get(&(symbol_short!("balance"), account)).unwrap_or(0)
     }
@@ -154,5 +196,59 @@ mod tests {
         let user = Address::generate(&env);
         client.mint(&user, &10_i128);
         client.burn(&user, &100_i128);
+    }
+
+    // SEP-41 compliance tests
+    #[test]
+    fn test_approve_and_allowance() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.approve(&owner, &spender, &500_i128, &1000_u32);
+        assert_eq!(client.allowance(&owner, &spender), 500_i128);
+    }
+
+    #[test]
+    fn test_transfer_from() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&owner, &1000_i128);
+        client.approve(&owner, &spender, &300_i128, &1000_u32);
+        client.transfer_from(&spender, &owner, &recipient, &200_i128);
+        assert_eq!(client.balance(&owner), 800_i128);
+        assert_eq!(client.balance(&recipient), 200_i128);
+        assert_eq!(client.allowance(&owner, &spender), 100_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "insufficient allowance")]
+    fn test_transfer_from_exceeds_allowance() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&owner, &1000_i128);
+        client.approve(&owner, &spender, &100_i128, &1000_u32);
+        client.transfer_from(&spender, &owner, &recipient, &200_i128);
+    }
+
+    #[test]
+    fn test_approve_zero_revokes() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.approve(&owner, &spender, &500_i128, &1000_u32);
+        client.approve(&owner, &spender, &0_i128, &0_u32);
+        assert_eq!(client.allowance(&owner, &spender), 0_i128);
+    }
+
+    #[test]
+    fn test_sep41_name_symbol_decimals() {
+        let (env, client) = setup();
+        assert_eq!(client.name(), String::from_str(&env, "SolarProof Energy Certificate"));
+        assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
+        assert_eq!(client.decimals(), 7_u32);
     }
 }
