@@ -198,6 +198,16 @@ export function Navbar() {
             {menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 transition hover:bg-gray-50 md:hidden"
+          aria-label="Open mobile menu"
+          aria-expanded={open}
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+        </button>
       </div>
 
       {/* Mobile menu */}

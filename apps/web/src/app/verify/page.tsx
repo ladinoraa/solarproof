@@ -113,8 +113,15 @@ export default function VerifyPage() {
     try {
       const res = await fetch(`/api/verify?id=${encodeURIComponent(q)}`)
       const data = await res.json()
-      if (!res.ok) { setError(data.error); return }
+      if (!res.ok) {
+        const message = data.error || 'Unable to verify certificate'
+        setError(message)
+        pushToast({ variant: 'error', title: 'Verification failed', description: message })
+        return
+      }
+
       setResult(data)
+      pushToast({ variant: 'success', title: 'Certificate verified', description: 'Full chain of custody confirmed.' })
     } catch {
       setError('Network error — please try again.')
     } finally {
@@ -272,7 +279,6 @@ export default function VerifyPage() {
             })}
           </ol>
 
-          {/* Meter proof */}
           {result.meter_proof && (
             <Section title="Meter proof">
               <Row label="Meter ID" value={result.meter_proof.meter_id} mono copyable />
