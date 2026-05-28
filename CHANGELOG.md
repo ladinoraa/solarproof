@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/AnnabelJoe/solarproof/compare/v1.4.0...v1.5.0) (2026-05-28)
+
+### Features
+
+* **api:** add Idempotency-Key header support to readings API ([e4bccbe](https://github.com/AnnabelJoe/solarproof/commit/e4bccbe3fe16471654445d4dd1a9a5f8fb323030)), closes [#267](https://github.com/AnnabelJoe/solarproof/issues/267)
+
 ## [1.4.0](https://github.com/AnnabelJoe/solarproof/compare/v1.3.0...v1.4.0) (2026-05-28)
 
 ### Features
