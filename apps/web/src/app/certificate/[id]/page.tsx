@@ -1,182 +1,179 @@
-'use client'
-
-import { useEffect, useState } from 'react'
-import { ExternalLink, Shield, CheckCircle, AlertTriangle, Clock } from 'lucide-react'
-import { useToast } from '@/components/ToastProvider'
+import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import Link from 'next/link'
+import {
+  Zap,
+  ShieldCheck,
+  Link2,
+  Award,
+  FlameKindling,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+} from 'lucide-react'
+import { createServiceClient } from '@/lib/supabase'
+import { CertificateChain, type ChainStep } from '@/components/certificate-chain'
+import { CopyableText } from '@/components/copy-button'
 
-interface ChainOfCustody {
-  certificate: {
-    id: string
-    kwh: number
-    issued_at: string
-    retired: boolean
-    retired_at: string | null
-    retired_by: string | null
-  }
-  on_chain: {
-    anchor_tx: string
-    anchor_explorer: string
-    mint_tx: string
-    mint_explorer: string
-  }
-  meter_proof: {
-    meter_id: string
-    reading_hash: string
-    signature_hex: string
-    kwh: number
-    timestamp: string
-    verified: boolean
-  } | null
+// ---------------------------------------------------------------------------
+// Data fetching (server-side, no auth required)
+// ---------------------------------------------------------------------------
+async function getCertificateChain(id: string) {
+  const db = createServiceClient()
+
+  const { data: cert } = await db
+    .from('certificates')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!cert) return null
+
+  const { data: reading } = await db
+    .from('readings')
+    .select('*')
+    .eq('id', cert.reading_id)
+    .maybeSingle()
+
+  return { cert, reading }
 }
 
-export default function CertificateDetailPage({ params }: { params: { id: string } }) {
-  const { id } = params
-  const [chain, setChain] = useState<ChainOfCustody | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const { pushToast } = useToast()
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  return {
+    title: `Certificate ${id.slice(0, 8)}… — SolarProof`,
+    description: 'Full chain of custody: meter reading → Ed25519 proof → ledger anchor → certificate → retirement.',
+  }
+}
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    setChain(null)
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+export default async function CertificatePage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  const data = await getCertificateChain(id)
+  if (!data) notFound()
 
-    async function load() {
-      try {
-        const response = await fetch(`/api/verify?id=${encodeURIComponent(id)}`)
-        const payload = await response.json()
-        if (!response.ok) {
-          throw new Error(payload.error || 'Unable to load certificate')
-        }
-        if (!active) return
-        setChain(payload)
-        pushToast({
-          variant: 'success',
-          title: 'Certificate loaded',
-          description: `Loaded chain-of-custody details for ${id}.`,
-        })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error'
-        if (!active) return
-        setError(message)
-        pushToast({
-          variant: 'error',
-          title: 'Unable to load certificate',
-          description: message,
-        })
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
+  // notFound() throws, so data is non-null here
+  const { cert, reading } = data!
 
-    load()
-    return () => {
-      active = false
-    }
-  }, [id, pushToast])
+  const steps: ChainStep[] = [
+    {
+      icon: Zap,
+      label: 'Meter reading',
+      timestamp: reading?.timestamp ?? null,
+      hash: reading?.reading_hash ?? null,
+      hashLabel: 'Reading hash',
+      status: reading ? 'done' : 'pending',
+      detail: reading ? `${reading.kwh} kWh · Meter ${reading.meter_id}` : undefined,
+    },
+    {
+      icon: ShieldCheck,
+      label: 'Ed25519 signature',
+      timestamp: reading?.timestamp ?? null,
+      hash: reading?.signature_hex ?? null,
+      hashLabel: 'Signature',
+      status: reading?.signature_hex ? 'done' : 'pending',
+      detail: reading?.signature_hex ? 'Verified against meter public key' : undefined,
+    },
+    {
+      icon: Link2,
+      label: 'Ledger anchor',
+      timestamp: cert.issued_at,
+      hash: cert.anchor_tx_hash,
+      hashLabel: 'Anchor tx',
+      explorerUrl: `https://stellar.expert/explorer/testnet/tx/${cert.anchor_tx_hash}`,
+      status: cert.anchor_tx_hash ? 'done' : 'pending',
+    },
+    {
+      icon: Award,
+      label: 'Certificate minted',
+      timestamp: cert.issued_at,
+      hash: cert.mint_tx_hash,
+      hashLabel: 'Mint tx',
+      explorerUrl: `https://stellar.expert/explorer/testnet/tx/${cert.mint_tx_hash}`,
+      status: 'done',
+      detail: `${cert.kwh} kWh`,
+    },
+    {
+      icon: FlameKindling,
+      label: 'Retirement',
+      timestamp: cert.retired_at,
+      hash: cert.retired_by,
+      hashLabel: 'Retired by',
+      status: cert.retired ? 'done' : 'pending',
+      detail: cert.retired
+        ? `Retired ${cert.retired_at ? new Date(cert.retired_at).toLocaleString() : ''}`
+        : 'Not yet retired — certificate is active',
+    },
+  ]
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-8 flex flex-col gap-3 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Shield className="h-7 w-7 text-yellow-500" aria-hidden="true" />
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-gray-500">Certificate details</p>
-            <h1 className="mt-2 text-3xl font-bold text-gray-900">Chain of custody</h1>
-          </div>
+    <div className="mx-auto max-w-2xl px-4 py-8 sm:py-12">
+      {/* Header */}
+      <header className="mb-8">
+        <div className="mb-1 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <Link
+            href="/verify"
+            className="hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded"
+          >
+            Verify
+          </Link>
+          <span aria-hidden="true">/</span>
+          <span className="font-mono">{id.slice(0, 8)}…</span>
         </div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 sm:text-3xl">
+          Certificate
+        </h1>
+        <div className="mt-1">
+          <CopyableText value={id} displayValue={id} mono className="text-xs text-gray-400 dark:text-gray-500 break-all" />
+        </div>
+
+        {/* Status badge */}
+        <div className="mt-3">
+          {cert.retired ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+              <FlameKindling className="h-3.5 w-3.5" aria-hidden="true" />
+              Retired
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Active · {cert.kwh} kWh
+            </span>
+          )}
+        </div>
+      </header>
+
+      {/* Chain of custody stepper */}
+      <CertificateChain steps={steps} />
+
+      {/* Footer actions */}
+      <div className="mt-8 flex flex-wrap gap-3">
+        <Link
+          href={`/verify?id=${id}`}
+          className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+        >
+          Verify this certificate
+        </Link>
         <Link
           href="/dashboard"
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:bg-gray-50"
-          aria-label="Back to dashboard"
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
         >
-          Back to dashboard
+          Dashboard
         </Link>
       </div>
-
-      <div className="space-y-4">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Certificate ID</p>
-          <p className="mt-2 break-all text-xl font-semibold text-gray-900">{id}</p>
-        </div>
-
-        {loading && (
-          <div className="rounded-3xl border border-gray-200 bg-slate-50 p-6 text-sm text-gray-600">Loading certificate details…</div>
-        )}
-
-        {error && (
-          <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700" role="alert">
-            {error}
-          </div>
-        )}
-
-        {chain && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <DetailCard title="Ledger anchor" icon={<Clock className="h-5 w-5 text-yellow-500" />}>
-              <p className="text-sm text-gray-600">Anchor transaction recorded on Stellar with a public explorer link.</p>
-              <a
-                href={chain.on_chain.anchor_explorer}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline"
-              >
-                {chain.on_chain.anchor_tx.slice(0, 16)}… <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              </a>
-            </DetailCard>
-
-            <DetailCard title="Certificate mint" icon={<CheckCircle className="h-5 w-5 text-yellow-500" />}>
-              <p className="text-sm text-gray-600">Mint transaction that created the energy certificate token.</p>
-              <a
-                href={chain.on_chain.mint_explorer}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline"
-              >
-                {chain.on_chain.mint_tx.slice(0, 16)}… <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              </a>
-            </DetailCard>
-
-            <DetailCard title="Meter reading" icon={<Shield className="h-5 w-5 text-yellow-500" />}>
-              <p className="text-sm text-gray-600">Meter reading and signature verified against the registry.</p>
-              <ul className="mt-4 space-y-2 text-sm text-gray-700">
-                <li>
-                  <strong>Meter:</strong> {chain.meter_proof?.meter_id ?? 'Unavailable'}
-                </li>
-                <li>
-                  <strong>Reading hash:</strong> <span className="font-mono">{chain.meter_proof?.reading_hash}</span>
-                </li>
-                <li>
-                  <strong>Signature:</strong> <span className="font-mono">{chain.meter_proof?.signature_hex.slice(0, 18)}…</span>
-                </li>
-              </ul>
-            </DetailCard>
-
-            <DetailCard title="Retirement status" icon={<AlertTriangle className="h-5 w-5 text-yellow-500" />}>
-              <p className="text-sm text-gray-600">Certificate status for active and retired energy credits.</p>
-              <div className="mt-4 text-sm text-gray-700">
-                <p>Status: <span className="font-semibold">{chain.certificate.retired ? 'Retired' : 'Active'}</span></p>
-                {chain.certificate.retired && (
-                  <p className="mt-1">Retired on {new Date(chain.certificate.retired_at ?? '').toLocaleDateString()}</p>
-                )}
-              </div>
-            </DetailCard>
-          </div>
-        )}
-      </div>
     </div>
-  )
-}
-
-function DetailCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-yellow-50 text-yellow-600">{icon}</span>
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      </div>
-      <div className="space-y-3">{children}</div>
-    </section>
   )
 }

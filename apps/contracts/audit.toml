@@ -1,0 +1,13 @@
+# cargo audit ignore file
+# Document known false positives here with justification and review date.
+#
+# Format:
+# [advisories.ignore]
+# id = "RUSTSEC-YYYY-NNNN"  # reason — reviewed YYYY-MM-DD
+#
+# Example (uncomment and fill in when needed):
+# [advisories.ignore]
+# id = "RUSTSEC-2023-0001"  # only affects feature X which we don't use — reviewed 2026-04-23
+
+[advisories]
+ignore = []

@@ -9,12 +9,19 @@
     "lint": "turbo lint",
     "type-check": "turbo type-check",
     "test": "turbo test",
+    "test:coverage": "pnpm --filter @solarproof/web vitest run --coverage",
+    "e2e": "pnpm --filter @solarproof/web exec playwright test",
+    "integration:test": "node scripts/local-soroban-integration.mjs",
     "clean": "turbo clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
     "prettier": "^3.3.3",
-    "turbo": "^2.3.3",
+    "semantic-release": "^24.0.0",
+    "turbo": "^2.9.12",
     "typescript": "^5.6.3"
   },
   "packageManager": "pnpm@10.6.5",
