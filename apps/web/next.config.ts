@@ -7,6 +7,9 @@ const withNextIntl = createNextIntlPlugin('./src/i18n.ts')
 const nextConfig: NextConfig = {
   transpilePackages: ['@solarproof/stellar'],
   serverExternalPackages: ['@stellar/stellar-sdk'],
+  experimental: {
+    instrumentationHook: true,
+  },
 }
 
 export default withSentryConfig(withNextIntl(nextConfig), {
