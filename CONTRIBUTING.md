@@ -9,8 +9,12 @@ git clone https://github.com/AnnabelJoe/solarproof.git
 cd solarproof
 git checkout develop
 git checkout -b feat/your-feature
-pnpm install
+pnpm install --frozen-lockfile
 ```
+
+> **Lockfile integrity**: always use `pnpm install --frozen-lockfile` to install dependencies.
+> This matches what CI enforces and prevents `pnpm-lock.yaml` from drifting out of sync with `package.json`.
+> If you intentionally add or update a package, run `pnpm install` (without the flag) and commit the updated lockfile alongside your changes.
 
 ## Commands
 
