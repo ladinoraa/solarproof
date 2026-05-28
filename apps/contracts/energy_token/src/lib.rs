@@ -916,4 +916,58 @@ mod tests {
         let user = Address::generate(&env);
         client.retire(&user, &String::from_str(&env, "empty"));
     }
+
+    // SEP-41 compliance tests
+    #[test]
+    fn test_approve_and_allowance() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.approve(&owner, &spender, &500_i128, &1000_u32);
+        assert_eq!(client.allowance(&owner, &spender), 500_i128);
+    }
+
+    #[test]
+    fn test_transfer_from() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&owner, &1000_i128);
+        client.approve(&owner, &spender, &300_i128, &1000_u32);
+        client.transfer_from(&spender, &owner, &recipient, &200_i128);
+        assert_eq!(client.balance(&owner), 800_i128);
+        assert_eq!(client.balance(&recipient), 200_i128);
+        assert_eq!(client.allowance(&owner, &spender), 100_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "insufficient allowance")]
+    fn test_transfer_from_exceeds_allowance() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        client.mint(&owner, &1000_i128);
+        client.approve(&owner, &spender, &100_i128, &1000_u32);
+        client.transfer_from(&spender, &owner, &recipient, &200_i128);
+    }
+
+    #[test]
+    fn test_approve_zero_revokes() {
+        let (env, client) = setup();
+        let owner = Address::generate(&env);
+        let spender = Address::generate(&env);
+        client.approve(&owner, &spender, &500_i128, &1000_u32);
+        client.approve(&owner, &spender, &0_i128, &0_u32);
+        assert_eq!(client.allowance(&owner, &spender), 0_i128);
+    }
+
+    #[test]
+    fn test_sep41_name_symbol_decimals() {
+        let (env, client) = setup();
+        assert_eq!(client.name(), String::from_str(&env, "SolarProof Energy Certificate"));
+        assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
+        assert_eq!(client.decimals(), 7_u32);
+    }
 }
