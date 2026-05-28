@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getCachedCert, setCachedCert } from '@/lib/cache'
+import { stellarExplorerUrl, type NetworkName } from '@solarproof/stellar'
+import { env } from '@/env'
 
 /**
  * GET /api/verify?id=<certificate_id_or_reading_hash_or_tx_hash>
@@ -46,6 +48,8 @@ export async function GET(req: NextRequest) {
     .eq('id', cert.reading_id)
     .single()
 
+  const network = (env.NEXT_PUBLIC_STELLAR_NETWORK ?? 'testnet') as NetworkName
+
   const chain = {
     certificate: {
       id: cert.id,
@@ -57,9 +61,13 @@ export async function GET(req: NextRequest) {
     },
     on_chain: {
       anchor_tx: cert.anchor_tx_hash,
-      anchor_explorer: `https://stellar.expert/explorer/testnet/tx/${cert.anchor_tx_hash}`,
+      anchor_explorer: stellarExplorerUrl('tx', cert.anchor_tx_hash, network),
       mint_tx: cert.mint_tx_hash,
-      mint_explorer: `https://stellar.expert/explorer/testnet/tx/${cert.mint_tx_hash}`,
+      mint_explorer: stellarExplorerUrl('tx', cert.mint_tx_hash, network),
+      energy_token_id: env.NEXT_PUBLIC_ENERGY_TOKEN_ID,
+      energy_token_explorer: stellarExplorerUrl('contract', env.NEXT_PUBLIC_ENERGY_TOKEN_ID, network),
+      audit_registry_id: env.NEXT_PUBLIC_AUDIT_REGISTRY_ID,
+      audit_registry_explorer: stellarExplorerUrl('contract', env.NEXT_PUBLIC_AUDIT_REGISTRY_ID, network),
     },
     meter_proof: reading
       ? {

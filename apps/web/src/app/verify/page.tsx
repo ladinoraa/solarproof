@@ -18,6 +18,10 @@ interface ChainOfCustody {
     anchor_explorer: string
     mint_tx: string
     mint_explorer: string
+    energy_token_id: string
+    energy_token_explorer: string
+    audit_registry_id: string
+    audit_registry_explorer: string
   }
   meter_proof: {
     meter_id: string
@@ -178,6 +182,18 @@ export default function VerifyPage() {
               value={result.on_chain.mint_tx}
               mono
               link={result.on_chain.mint_explorer}
+            />
+            <Row
+              label="Energy token"
+              value={result.on_chain.energy_token_id}
+              mono
+              link={result.on_chain.energy_token_explorer}
+            />
+            <Row
+              label="Audit registry"
+              value={result.on_chain.audit_registry_id}
+              mono
+              link={result.on_chain.audit_registry_explorer}
             />
           </Section>
 
