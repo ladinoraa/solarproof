@@ -20,6 +20,10 @@ interface ChainOfCustody {
     anchor_explorer: string
     mint_tx: string
     mint_explorer: string
+    energy_token_id: string
+    energy_token_explorer: string
+    audit_registry_id: string
+    audit_registry_explorer: string
   }
   meter_proof: {
     meter_id: string

@@ -155,3 +155,14 @@ export const kwhToStroops = (kwh: number): bigint => BigInt(Math.round(kwh * 1e7
  * @returns Energy amount in kilowatt-hours.
  */
 export const stroopsToKwh = (stroops: bigint): number => Number(stroops) / 1e7
+
+/** Build a stellar.expert deep link for a transaction or contract address. */
+export function stellarExplorerUrl(
+  type: 'tx' | 'contract',
+  id: string,
+  network: NetworkName = 'testnet'
+): string {
+  const net = network === 'mainnet' ? 'public' : 'testnet'
+  const path = type === 'tx' ? 'tx' : 'contract'
+  return `https://stellar.expert/explorer/${net}/${path}/${id}`
+}
