@@ -1,3 +1,13 @@
+## [1.4.0](https://github.com/AnnabelJoe/solarproof/compare/v1.3.0...v1.4.0) (2026-05-28)
+
+### Features
+
+* **observability:** add OpenTelemetry APM instrumentation ([670c77a](https://github.com/AnnabelJoe/solarproof/commit/670c77a9dc90d7fe7475cde001c451725797243a)), closes [#291](https://github.com/AnnabelJoe/solarproof/issues/291)
+
+### Documentation
+
+* enhance developer onboarding guide ([ff7de25](https://github.com/AnnabelJoe/solarproof/commit/ff7de25516744e97733fc8fd724fc066a6bcacd9)), closes [#308](https://github.com/AnnabelJoe/solarproof/issues/308)
+
 ## [1.3.0](https://github.com/AnnabelJoe/solarproof/compare/v1.2.0...v1.3.0) (2026-05-28)
 
 ### Features
