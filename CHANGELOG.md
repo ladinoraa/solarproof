@@ -1,3 +1,13 @@
+## [1.3.0](https://github.com/AnnabelJoe/solarproof/compare/v1.2.0...v1.3.0) (2026-05-28)
+
+### Features
+
+* add /api/health and /api/ready endpoints ([#275](https://github.com/AnnabelJoe/solarproof/issues/275)) ([4f761a4](https://github.com/AnnabelJoe/solarproof/commit/4f761a428a2c3a9cb239d8ee1c2f7150d73acfe1))
+
+### Documentation
+
+* document pnpm --frozen-lockfile requirement ([#302](https://github.com/AnnabelJoe/solarproof/issues/302)) ([4072e11](https://github.com/AnnabelJoe/solarproof/commit/4072e11a05c90cf952132bfd1b7b96d514021f1b))
+
 ## [1.2.0](https://github.com/AnnabelJoe/solarproof/compare/v1.1.0...v1.2.0) (2026-05-28)
 
 ### Features
