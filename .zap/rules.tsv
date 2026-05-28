@@ -1,0 +1,5 @@
+# OWASP ZAP Baseline Scan Rules
+# Format: <rule_id>\t<WARN|IGNORE|INFO|FAIL>
+# Document false positives below:
+# Example: Ignore Content Security Policy (CSP) Header Not Set because we handle it at the Edge level
+# 10038	IGNORE

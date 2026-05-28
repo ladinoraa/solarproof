@@ -3,6 +3,7 @@
 > End-to-end cryptographic proof of renewable energy — from physical meter to on-chain certificate.
 
 [![CI](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AnnabelJoe/solarproof/branch/main/graph/badge.svg)](https://codecov.io/gh/AnnabelJoe/solarproof)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-blue?logo=stellar)](https://stellar.org)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen)](#)
@@ -105,6 +106,25 @@ stellar contract build
 cargo test
 ```
 
+### Docker (recommended for local development)
+
+Spin up the full stack — Next.js, Supabase, and Redis — with a single command:
+
+```bash
+cp apps/web/.env.example .env.local   # fill in your values
+docker compose up
+```
+
+The web app will be available at http://localhost:3000.
+
+Data is persisted in named Docker volumes (`supabase_data`, `redis_data`) so it survives container restarts.
+
+To stop and remove containers (volumes are kept):
+
+```bash
+docker compose down
+```
+
 ### Simulate a meter reading
 
 ```bash
@@ -166,6 +186,8 @@ solarproof/
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `develop`.
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
 
 ---
 
