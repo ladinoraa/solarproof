@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/AnnabelJoe/solarproof/compare/v1.1.0...v1.2.0) (2026-05-28)
+
+### Features
+
+* add governance voting UI ([#265](https://github.com/AnnabelJoe/solarproof/issues/265)) ([b59d23a](https://github.com/AnnabelJoe/solarproof/commit/b59d23a57fe4ba0c2e671f9ba4022ab2ea027ebb))
+
 ## [1.1.0](https://github.com/AnnabelJoe/solarproof/compare/v1.0.0...v1.1.0) (2026-05-28)
 
 ### Features
