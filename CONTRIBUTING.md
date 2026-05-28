@@ -15,7 +15,7 @@ git clone https://github.com/AnnabelJoe/solarproof.git
 cd solarproof
 git checkout develop
 git checkout -b feat/your-feature
-pnpm install
+pnpm install --frozen-lockfile
 ```
 
 ---
