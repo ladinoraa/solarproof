@@ -970,4 +970,47 @@ mod tests {
         assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
         assert_eq!(client.decimals(), 7_u32);
     }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_mint_zero_rejected() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &0_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_mint_negative_rejected() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &-1_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "balance overflow")]
+    fn test_mint_overflow_rejected() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        // Fill balance to i128::MAX - 1
+        client.mint(&user, &(i128::MAX - 1));
+        // This should overflow
+        client.mint(&user, &2_i128);
+    }
+
+    #[test]
+    fn test_mint_boundary_max_minus_one() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &(i128::MAX - 1));
+        assert_eq!(client.balance(&user), i128::MAX - 1);
+    }
+
+    #[test]
+    fn test_mint_amount_one() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1_i128);
+        assert_eq!(client.balance(&user), 1_i128);
+    }
 }
