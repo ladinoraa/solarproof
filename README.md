@@ -125,6 +125,22 @@ To stop and remove containers (volumes are kept):
 docker compose down
 ```
 
+**Minimum host requirements for Docker Compose:**
+
+| Resource | Minimum |
+|---|---|
+| RAM | 2 GB available to Docker |
+| CPU | 2 cores |
+| Disk | 4 GB free |
+
+Resource limits per service (defined in `docker-compose.yml`):
+
+| Service | Memory limit | CPU limit |
+|---|---|---|
+| `web` | 1 GB | 1.0 core |
+| `supabase-db` | 512 MB | 0.5 core |
+| `redis` | 128 MB | 0.25 core |
+
 ### Simulate a meter reading
 
 ```bash
