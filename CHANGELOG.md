@@ -1,3 +1,9 @@
+## [1.7.1](https://github.com/AnnabelJoe/solarproof/compare/v1.7.0...v1.7.1) (2026-05-29)
+
+### Bug Fixes
+
+* implement CSRF protection for state-changing API endpoints ([#335](https://github.com/AnnabelJoe/solarproof/issues/335)) ([2c6c8c8](https://github.com/AnnabelJoe/solarproof/commit/2c6c8c876dd56d55175a52eb35e7c55c9821efb8))
+
 ## [1.7.0](https://github.com/AnnabelJoe/solarproof/compare/v1.6.0...v1.7.0) (2026-05-28)
 
 ### Features
