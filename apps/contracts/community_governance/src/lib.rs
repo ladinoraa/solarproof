@@ -1081,4 +1081,98 @@ mod tests {
         client.finalize(&id);
         assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Expired);
     }
+
+    // ── event emission tests (#330) ──────────────────────────────────────────
+
+    #[test]
+    fn test_propose_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        client.propose(
+            &proposer,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Desc"),
+        );
+        let events = env.events().all();
+        let propose_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("propose"), &env)]
+        });
+        assert!(propose_event.is_some(), "propose event not emitted");
+        let (_, _, data) = propose_event.unwrap();
+        let proposal_id: u32 = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(proposal_id, 1_u32);
+    }
+
+    #[test]
+    fn test_vote_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&voter, &id, &true);
+        let events = env.events().all();
+        let vote_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("vote"), &env)]
+        });
+        assert!(vote_event.is_some(), "vote event not emitted");
+        let (_, _, data) = vote_event.unwrap();
+        let (pid, _voter_addr, approve): (u32, Address, bool) =
+            soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
+        assert!(approve);
+    }
+
+    #[test]
+    fn test_finalize_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        let events = env.events().all();
+        let final_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("final"), &env)]
+        });
+        assert!(final_event.is_some(), "finalize event not emitted");
+        let (_, _, data) = final_event.unwrap();
+        let (pid, status): (u32, ProposalStatus) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
+        assert_eq!(status, ProposalStatus::Passed);
+    }
+
+    #[test]
+    fn test_execute_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        env.ledger()
+            .with_mut(|l| l.sequence_number += EXECUTE_TIMELOCK_LEDGERS);
+        client.execute(&id);
+        let events = env.events().all();
+        let exec_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("exec"), &env)]
+        });
+        assert!(exec_event.is_some(), "execute event not emitted");
+        let (_, _, data) = exec_event.unwrap();
+        let pid: u32 = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
+    }
 }

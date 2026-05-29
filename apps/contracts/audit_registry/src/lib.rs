@@ -451,4 +451,23 @@ mod tests {
             soroban_sdk::String::from_str(&env, "1.0.0")
         );
     }
+
+    // ── event emission tests (#330) ──────────────────────────────────────────
+
+    #[test]
+    fn test_anchor_emits_event() {
+        let (env, api_signer, client) = setup();
+        let h = hash(&env);
+        client.anchor(&api_signer, &h).unwrap();
+        let events = env.events().all();
+        let anchor_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("anchor"), &env)]
+        });
+        assert!(anchor_event.is_some(), "anchor event not emitted");
+        // data = (reading_hash, ledger_sequence, timestamp)
+        let (_, _, data) = anchor_event.unwrap();
+        let (emitted_hash, _ledger, _ts): (BytesN<32>, u32, u64) =
+            soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(emitted_hash, h);
+    }
 }
