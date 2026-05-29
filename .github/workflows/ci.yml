@@ -41,6 +41,10 @@ jobs:
   contracts:
     name: Contracts (fmt + clippy + test)
     runs-on: ubuntu-latest
+    env:
+      # Rotate accounts per run to avoid faucet rate limits
+      CI_ADMIN_ADDRESS: ${{ vars.CI_ADMIN_ADDRESS || '' }}
+      CI_MINTER_ADDRESS: ${{ vars.CI_MINTER_ADDRESS || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -50,6 +54,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/contracts
+      - name: Fund test accounts via Stellar Testnet faucet
+        run: |
+          chmod +x scripts/fund-test-accounts.sh
+          if [ -n "$CI_ADMIN_ADDRESS" ] && [ -n "$CI_MINTER_ADDRESS" ]; then
+            scripts/fund-test-accounts.sh "$CI_ADMIN_ADDRESS" "$CI_MINTER_ADDRESS"
+          else
+            echo "No CI account addresses set; skipping faucet (unit tests use mock env)"
+          fi
+        continue-on-error: true  # faucet failures must not block unit tests
       - name: fmt
         run: cargo fmt --all -- --check
         working-directory: apps/contracts
