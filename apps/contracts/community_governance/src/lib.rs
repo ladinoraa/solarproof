@@ -9,6 +9,10 @@ use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, E
 pub enum ProposalStatus { Active, Passed, Rejected, Expired }
 
 #[contracttype]
+#[derive(Clone, PartialEq)]
+pub enum VoteChoice { For, Against, Abstain }
+
+#[contracttype]
 #[derive(Clone)]
 pub struct Proposal {
     pub id: u32,
@@ -17,6 +21,7 @@ pub struct Proposal {
     pub description: String,
     pub yes_votes: u32,
     pub no_votes: u32,
+    pub abstain_votes: u32,
     pub end_ledger: u32,
     pub status: ProposalStatus,
 }
@@ -42,15 +47,24 @@ impl CommunityGovernance {
 
     pub fn propose(env: Env, proposer: Address, title: String, description: String) -> u32 {
         proposer.require_auth();
+        assert!(title.len() > 0, "title cannot be empty");
+        assert!(description.len() > 0, "description cannot be empty");
+
         let mut count: u32 = env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0);
         count += 1;
         let period: u32 = env.storage().instance().get(&DataKey::VotingPeriod).expect("not initialized");
         let proposal = Proposal {
-            id: count, proposer, title, description,
-            yes_votes: 0, no_votes: 0,
+            id: count,
+            proposer,
+            title,
+            description,
+            yes_votes: 0,
+            no_votes: 0,
+            abstain_votes: 0,
             end_ledger: env.ledger().sequence() + period,
             status: ProposalStatus::Active,
         };
+
         let mut proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
         proposals.set(count, proposal);
         env.storage().instance().set(&DataKey::ProposalCount, &count);
@@ -58,17 +72,24 @@ impl CommunityGovernance {
         count
     }
 
-    pub fn vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {
+    pub fn vote(env: Env, voter: Address, proposal_id: u32, vote: VoteChoice) {
         voter.require_auth();
         let voted_key = (symbol_short!("voted"), proposal_id, voter.clone());
         if env.storage().persistent().get::<_, bool>(&voted_key).unwrap_or(false) {
             panic!("already voted");
         }
+
         let mut proposals: Map<u32, Proposal> = env.storage().instance().get(&DataKey::Proposals).expect("not initialized");
         let mut p = proposals.get(proposal_id).expect("proposal not found");
         assert!(p.status == ProposalStatus::Active, "proposal not active");
         assert!(env.ledger().sequence() <= p.end_ledger, "voting period ended");
-        if approve { p.yes_votes += 1; } else { p.no_votes += 1; }
+
+        match vote {
+            VoteChoice::For => p.yes_votes += 1,
+            VoteChoice::Against => p.no_votes += 1,
+            VoteChoice::Abstain => p.abstain_votes += 1,
+        }
+
         proposals.set(proposal_id, p);
         env.storage().instance().set(&DataKey::Proposals, &proposals);
         env.storage().persistent().set(&voted_key, &true);
@@ -79,11 +100,17 @@ impl CommunityGovernance {
         let mut p = proposals.get(proposal_id).expect("proposal not found");
         assert!(p.status == ProposalStatus::Active, "already finalized");
         assert!(env.ledger().sequence() > p.end_ledger, "voting still open");
+
         let quorum: u32 = env.storage().instance().get(&DataKey::Quorum).expect("not initialized");
-        let total = p.yes_votes + p.no_votes;
-        p.status = if total == 0 { ProposalStatus::Expired }
-            else if p.yes_votes * 100 / total >= quorum { ProposalStatus::Passed }
-            else { ProposalStatus::Rejected };
+        let total = p.yes_votes + p.no_votes + p.abstain_votes;
+        p.status = if total == 0 {
+            ProposalStatus::Expired
+        } else if p.yes_votes * 100 / total >= quorum {
+            ProposalStatus::Passed
+        } else {
+            ProposalStatus::Rejected
+        };
+
         proposals.set(proposal_id, p.clone());
         env.storage().instance().set(&DataKey::Proposals, &proposals);
         env.events().publish((symbol_short!("final"),), (proposal_id, p.status));
@@ -114,14 +141,101 @@ mod tests {
     }
 
     #[test]
-    fn test_propose_and_pass() {
+    fn test_propose_with_empty_title_rejected() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let title = String::from_str(&env, "");
+        let description = String::from_str(&env, "Valid description");
+        let result = std::panic::catch_unwind(|| {
+            client.propose(&proposer, &title, &description);
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propose_with_empty_description_rejected() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let title = String::from_str(&env, "Valid title");
+        let description = String::from_str(&env, "");
+        let result = std::panic::catch_unwind(|| {
+            client.propose(&proposer, &title, &description);
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_propose_valid_input_returns_id() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let title = String::from_str(&env, "Change fees");
+        let description = String::from_str(&env, "Enable new meter type");
+        let id = client.propose(&proposer, &title, &description);
+        assert_eq!(id, 1);
+        let proposal = client.get_proposal(&id).unwrap();
+        assert_eq!(proposal.title, title);
+        assert_eq!(proposal.description, description);
+        assert_eq!(proposal.status, ProposalStatus::Active);
+    }
+
+    #[test]
+    fn test_vote_types_and_abstain() {
         let (env, client) = setup();
         let proposer = Address::generate(&env);
         let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
-        client.vote(&Address::generate(&env), &id, &true);
-        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &VoteChoice::For);
+        client.vote(&Address::generate(&env), &id, &VoteChoice::Against);
+        client.vote(&Address::generate(&env), &id, &VoteChoice::Abstain);
+        let proposal = client.get_proposal(&id).unwrap();
+        assert_eq!(proposal.yes_votes, 1);
+        assert_eq!(proposal.no_votes, 1);
+        assert_eq!(proposal.abstain_votes, 1);
+    }
+
+    #[test]
+    fn test_vote_after_voting_period_ended_rejected() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        let result = std::panic::catch_unwind(|| {
+            client.vote(&Address::generate(&env), &id, &VoteChoice::For);
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_double_vote_rejected() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
+        client.vote(&voter, &id, &VoteChoice::For);
+        let result = std::panic::catch_unwind(|| {
+            client.vote(&voter, &id, &VoteChoice::Against);
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_finalize_after_quorum_passed() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
+        client.vote(&Address::generate(&env), &id, &VoteChoice::For);
+        client.vote(&Address::generate(&env), &id, &VoteChoice::For);
         env.ledger().with_mut(|l| l.sequence_number += 101);
         client.finalize(&id);
         assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Passed);
+    }
+
+    #[test]
+    fn test_finalize_expired_proposal() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Expired);
     }
 }

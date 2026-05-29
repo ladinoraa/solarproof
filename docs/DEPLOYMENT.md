@@ -51,3 +51,14 @@ MINTER_SECRET_KEY=<MINTER_SECRET>
 node scripts/gen-meter-key.mjs
 # Insert meter into Supabase with the generated public_key_hex
 ```
+
+## 6. Smoke test and recovery
+
+- Run the automated smoke test after deployment:
+
+```bash
+pnpm exec node scripts/smoke-test.mjs
+```
+
+- Refer to `docs/backup-recovery.md` for Supabase backup, restore, RTO, RPO, and retention policies.
+- Refer to `docs/CONTRACT_INTERFACE_DOCS.md` for Soroban contract interfaces, parameter details, and Stellar CLI examples.
