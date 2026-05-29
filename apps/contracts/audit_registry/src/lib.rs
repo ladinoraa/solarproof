@@ -25,7 +25,7 @@ use soroban_sdk::{
 #[contracttype]
 #[derive(Clone)]
 pub struct AuditAnchor {
-    /// SHA-256 of (meter_id || kwh_stroops || timestamp_unix)
+    /// SHA-256 of (meter_id || kwh_stroops || timestamp_unix || nonce)
     pub reading_hash: BytesN<32>,
     /// Ed25519 public key of the meter device (32 bytes)
     pub meter_pubkey: BytesN<32>,
@@ -37,6 +37,8 @@ pub struct AuditAnchor {
     pub meter_id: soroban_sdk::String,
     /// Unix timestamp of the reading
     pub timestamp: u64,
+    /// Caller-supplied nonce to prevent replay attacks (included in reading_hash pre-image)
+    pub nonce: BytesN<32>,
     /// Stellar ledger sequence at anchor time
     pub anchored_at_ledger: u32,
 }
@@ -69,7 +71,9 @@ impl AuditRegistry {
     /// Anchor a signed meter reading on-chain.
     ///
     /// The contract verifies the Ed25519 signature before storing.
-    /// Once anchored, a reading cannot be overwritten.
+    /// Once anchored, a reading cannot be overwritten (replay protection).
+    /// The `nonce` must be unique per reading and is included in the anchored
+    /// data to prevent replay attacks even if the same hash is resubmitted.
     pub fn anchor(
         env: Env,
         reading_hash: BytesN<32>,
@@ -78,8 +82,9 @@ impl AuditRegistry {
         kwh_stroops: i128,
         meter_id: soroban_sdk::String,
         timestamp: u64,
+        nonce: BytesN<32>,
     ) {
-        // Prevent duplicate anchors.
+        // Prevent duplicate anchors — primary replay protection.
         let key = DataKey::Anchor(reading_hash.clone());
         if env.storage().persistent().has(&key) {
             panic!("reading already anchored");
@@ -101,6 +106,7 @@ impl AuditRegistry {
             kwh_stroops,
             meter_id,
             timestamp,
+            nonce,
             anchored_at_ledger: env.ledger().sequence(),
         };
 
@@ -154,18 +160,21 @@ mod tests {
     }
 
     fn make_reading_hash(env: &Env) -> BytesN<32> {
-        // Deterministic test hash
         BytesN::from_array(env, &[1u8; 32])
+    }
+
+    fn make_nonce(env: &Env, val: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[val; 32])
     }
 
     #[test]
     fn test_anchor_and_verify() {
         let (env, client) = setup();
 
-        // Generate a real Ed25519 keypair via Soroban testutils
         let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
         let reading_hash = make_reading_hash(&env);
         let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
+        let nonce = make_nonce(&env, 42);
 
         client.anchor(
             &reading_hash,
@@ -174,6 +183,7 @@ mod tests {
             &1_000_000_0_i128,
             &soroban_sdk::String::from_str(&env, "METER-001"),
             &1_700_000_000_u64,
+            &nonce,
         );
 
         assert!(client.is_anchored(&reading_hash));
@@ -181,6 +191,8 @@ mod tests {
 
         let anchor = client.verify(&reading_hash).unwrap();
         assert_eq!(anchor.kwh_stroops, 1_000_000_0_i128);
+        // Nonce is stored in the anchor record
+        assert_eq!(anchor.nonce, nonce);
     }
 
     #[test]
@@ -190,12 +202,13 @@ mod tests {
         let signer = soroban_sdk::testutils::ed25519::Signer::generate(&env);
         let reading_hash = make_reading_hash(&env);
         let sig = signer.sign(&env, &Bytes::from_slice(&env, reading_hash.to_array().as_ref()));
+        let nonce = make_nonce(&env, 1);
 
         client.anchor(&reading_hash, &signer.public_key(&env), &sig, &100_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64);
-        // Second call must panic
+            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64, &nonce);
+        // Replay: same hash must panic
         client.anchor(&reading_hash, &signer.public_key(&env), &sig, &100_i128,
-            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64);
+            &soroban_sdk::String::from_str(&env, "METER-001"), &1_700_000_000_u64, &nonce);
     }
 
     #[test]
