@@ -49,6 +49,10 @@ pub enum ProposalStatus {
 
 /// A governance proposal.
 #[contracttype]
+#[derive(Clone, PartialEq)]
+pub enum VoteChoice { For, Against, Abstain }
+
+#[contracttype]
 #[derive(Clone)]
 pub struct Proposal {
     /// Auto-incrementing proposal identifier (1-based).
@@ -1066,5 +1070,15 @@ mod tests {
     fn test_get_version() {
         let (env, _admin, client) = setup();
         assert_eq!(client.get_version(), String::from_str(&env, "1.0.0"));
+    }
+
+    #[test]
+    fn test_finalize_expired_proposal() {
+        let (env, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Expired);
     }
 }
