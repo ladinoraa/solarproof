@@ -1,0 +1,39 @@
+name: Uptime Monitoring
+
+on:
+  schedule:
+    - cron: '* * * * *'   # every minute
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check endpoints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /api/health
+        id: health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            "${{ vars.APP_URL }}/api/health")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          [ "$STATUS" = "200" ] || echo "::warning::health check failed (HTTP $STATUS)"
+
+      - name: Check /verify
+        id: verify
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            "${{ vars.APP_URL }}/verify")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          [ "$STATUS" = "200" ] || echo "::warning::verify page check failed (HTTP $STATUS)"
+
+      - name: Alert on outage
+        if: steps.health.outputs.status != '200' || steps.verify.outputs.status != '200'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_UPTIME_WEBHOOK }}
+        run: |
+          HEALTH="${{ steps.health.outputs.status }}"
+          VERIFY="${{ steps.verify.outputs.status }}"
+          MSG="🚨 *SolarProof outage detected*\n• \`/api/health\` → HTTP $HEALTH\n• \`/verify\` → HTTP $VERIFY\n• Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\"$MSG\"}"

@@ -1,0 +1,76 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "meters": "Zähler",
+    "certificates": "Zertifikate",
+    "governance": "Governance",
+    "verify": "Verifizieren",
+    "connectWallet": "Wallet verbinden",
+    "disconnectWallet": "Wallet trennen",
+    "openMenu": "Navigationsmenü öffnen",
+    "closeMenu": "Navigationsmenü schließen",
+    "switchLight": "Zum hellen Modus wechseln",
+    "switchDark": "Zum dunklen Modus wechseln"
+  },
+  "verify": {
+    "title": "Zertifikatsverifizierer",
+    "subtitle": "Kein Login erforderlich. Geben Sie eine Zertifikats-ID, einen Lese-Hash oder einen Transaktions-Hash ein.",
+    "placeholder": "Zertifikats-ID, Lese-Hash oder Tx-Hash…",
+    "verify": "Verifizieren",
+    "verifying": "Verifizierung…",
+    "share": "Teilen",
+    "copied": "Kopiert!",
+    "fullChain": "Vollständige Verwahrkette bestätigt",
+    "partialChain": "Teilweise Verifizierung — siehe Schritte unten",
+    "steps": {
+      "meter": "Zählerablesung",
+      "meterDesc": "Das physische Messgerät hat eine signierte Energieablesung aufgezeichnet.",
+      "signature": "Ed25519-Signatur",
+      "signatureDesc": "Gerätesignatur gegen den Lese-Hash verifiziert.",
+      "anchor": "On-chain-Anker",
+      "anchorDesc": "Lese-Hash über den audit_registry-Vertrag auf Stellar verankert.",
+      "certificate": "Zertifikat ausgestellt",
+      "certificateDesc": "Energie-Token (1 Token = 1 kWh) auf Stellar ausgestellt.",
+      "retirement": "Stilllegung",
+      "retirementDesc": "Zertifikat stillgelegt, um Doppelzählung zu verhindern."
+    },
+    "cert": {
+      "heading": "Zertifikat",
+      "id": "ID",
+      "energy": "Energie",
+      "issued": "Ausgestellt",
+      "status": "Status",
+      "active": "Aktiv",
+      "retired": "Stillgelegt"
+    }
+  },
+  "governance": {
+    "title": "Governance",
+    "subtitle": "Gemeinschaftsvorschläge für die SolarProof-Genossenschaft.",
+    "newProposal": "Neuer Vorschlag",
+    "active": "Aktiv",
+    "closed": "Geschlossen",
+    "connectToVote": "Verbinden Sie Ihre Wallet, um abzustimmen.",
+    "youVoted": "Sie haben für {choice} gestimmt.",
+    "voteFor": "Dafür",
+    "voteAgainst": "Dagegen",
+    "voteAbstain": "Enthaltung",
+    "form": {
+      "heading": "Neuer Vorschlag",
+      "title": "Titel",
+      "titlePlaceholder": "Kurzer, beschreibender Titel",
+      "description": "Beschreibung",
+      "descriptionPlaceholder": "Erläutern Sie die Motivation und den erwarteten Effekt…",
+      "days": "Abstimmungszeitraum (Tage)",
+      "submit": "Vorschlag einreichen",
+      "submitConnect": "Wallet verbinden und einreichen",
+      "submitting": "Wird eingereicht…",
+      "success": "Vorschlag erfolgreich eingereicht!",
+      "errors": {
+        "titleRequired": "Titel ist erforderlich.",
+        "descriptionRequired": "Beschreibung ist erforderlich.",
+        "daysInvalid": "Geben Sie eine Zahl zwischen 1 und 30 ein."
+      }
+    }
+  }
+}

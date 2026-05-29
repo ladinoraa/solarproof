@@ -1,0 +1,5 @@
+[allowlist]
+  description = "Allowlist for known safe placeholder values"
+  paths = [
+    "apps/web/.env.example",
+  ]
