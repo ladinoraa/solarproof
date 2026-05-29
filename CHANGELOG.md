@@ -1,3 +1,13 @@
+## [1.8.0](https://github.com/AnnabelJoe/solarproof/compare/v1.7.1...v1.8.0) (2026-05-29)
+
+### Features
+
+* automate Stellar Testnet faucet funding in CI ([#303](https://github.com/AnnabelJoe/solarproof/issues/303)) ([25598db](https://github.com/AnnabelJoe/solarproof/commit/25598db91671f6fe7ce19ec58b84b8e52be73517))
+
+### Documentation
+
+* **adr:** add ADR-005 monorepo structure and ADR-006 certificate retirement model ([d7c679a](https://github.com/AnnabelJoe/solarproof/commit/d7c679aff638315c81a9ed8444b24bf5fa4c02ad)), closes [#311](https://github.com/AnnabelJoe/solarproof/issues/311)
+
 ## [1.7.1](https://github.com/AnnabelJoe/solarproof/compare/v1.7.0...v1.7.1) (2026-05-29)
 
 ### Bug Fixes
