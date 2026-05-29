@@ -1,64 +1,45 @@
-# Logging
+# Log Aggregation
 
-SolarProof ships structured logs to [Better Stack (Logtail)](https://betterstack.com/logs) via `@logtail/next`.
+SolarProof ships structured JSON logs to **Better Stack (Logtail)** from all Next.js API routes.
 
 ## Setup
 
-Set the source token in your environment:
+1. Create a **Source** in [Better Stack Logs](https://logs.betterstack.com) → choose *HTTP source*.
+2. Copy the **Source token** and add it to your environment:
+   - Vercel: `Settings → Environment Variables → LOGTAIL_SOURCE_TOKEN`
+   - Local: add to `.env.local`
+3. Retention is configured per-team in Better Stack → **30 days** is the default for the free tier; upgrade if needed.
 
+## Log format
+
+Every log line is a JSON object:
+
+```json
+{
+  "level": "info",
+  "event": "reading.anchored",
+  "timestamp": "2026-04-24T13:00:00.000Z",
+  "txHash": "abc123",
+  "kwh": 12.5
+}
 ```
-LOGTAIL_SOURCE_TOKEN=<your-token>
-```
 
-Get a token from the [Better Stack dashboard](https://logs.betterstack.com) → Sources → Create source → Node.js.
-
-## Log Levels
-
-| Level | Usage |
-|-------|-------|
-| `debug` | Development diagnostics (suppressed in production by default) |
-| `info` | Normal operations: readings received, tokens minted, anchors recorded |
-| `warn` | Recoverable issues: retries, degraded service |
-| `error` | Failures: mint errors, signature verification failures, contract errors |
-
-## Usage
+## Usage in code
 
 ```ts
-import { log } from "@/lib/logger";
+import { logger } from '@/lib/logger'
 
-log("info", "Reading anchored", { reading_id: id, kwh });
-log("error", "Mint failed", { reading_id: id, reason: err.message });
+logger.info('reading.anchored', { txHash, kwh })
+logger.error('mint.failed', { error: err.message, readingId })
 ```
-
-## Sensitive Data Exclusion
-
-The logger automatically redacts any metadata field whose name matches `/secret|key|signature|token/i`. The value is replaced with `[REDACTED]` before the log is shipped.
-
-Redacted fields include (but are not limited to): `secret_key`, `signature_hex`, `pubkey_hex`, `service_role_key`, `source_token`.
-
-Never log raw private keys or signatures. Use `reading_id` or `tx_hash` as correlation identifiers instead.
-
-## Retention Policy
-
-Configure retention in the Better Stack dashboard under **Sources → Retention**:
-
-| Level | Retention |
-|-------|-----------|
-| `info`, `debug`, `warn` | 30 days |
-| `error` | 90 days |
-
-To enforce this, create two separate Better Stack sources (one for errors, one for everything else) and route logs accordingly, or use Better Stack's built-in retention tiers.
 
 ## Alerts
 
-Set up alerts in Better Stack under **Alerts → Create alert**:
+Configure in Better Stack → **Alerts**:
 
 | Alert | Condition | Channel |
-|-------|-----------|---------|
-| Error rate spike | `level = error` count > 10 in 5 min | Email / PagerDuty |
-| Mint failure | `message contains "Mint failed"` any occurrence | Slack |
-| Signature failure | `message contains "signature"` count > 5 in 1 min | Email |
+|---|---|---|
+| Error spike | `level = error` count > 10 in 5 min | Email / PagerDuty |
+| High error rate | `level = error` / total > 5 % over 15 min | Slack |
 
-## Local Development
-
-Without `LOGTAIL_SOURCE_TOKEN` set, `@logtail/next` falls back to `console` output. No configuration needed for local development.
+Logs are also captured by Vercel function logs (stdout) and Sentry (errors via `@sentry/nextjs`).
