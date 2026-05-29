@@ -51,6 +51,9 @@ jobs:
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       - run: pnpm test
         working-directory: apps/web
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       - run: pnpm build
         working-directory: apps/web
         env:
@@ -128,14 +131,23 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
         working-directory: apps/contracts
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
         working-directory: apps/contracts
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: test
         run: cargo test --all
         working-directory: apps/contracts
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
   proptest:
     name: Property-based tests (proptest)
