@@ -1,3 +1,9 @@
+## [1.8.1](https://github.com/AnnabelJoe/solarproof/compare/v1.8.0...v1.8.1) (2026-05-29)
+
+### Bug Fixes
+
+* add replay attack protection to audit_registry contract ([#280](https://github.com/AnnabelJoe/solarproof/issues/280)) ([b4e10b7](https://github.com/AnnabelJoe/solarproof/commit/b4e10b7e45157b6c98a2da83a2940d069b9d986d))
+
 ## [1.8.0](https://github.com/AnnabelJoe/solarproof/compare/v1.7.1...v1.8.0) (2026-05-29)
 
 ### Features
