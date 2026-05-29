@@ -1,3 +1,9 @@
+## [1.8.2](https://github.com/AnnabelJoe/solarproof/compare/v1.8.1...v1.8.2) (2026-05-29)
+
+### Bug Fixes
+
+* use checked arithmetic in energy_token to prevent overflow ([#277](https://github.com/AnnabelJoe/solarproof/issues/277)) ([f526e26](https://github.com/AnnabelJoe/solarproof/commit/f526e268b3b8ee607e55248554d9ec7369831332))
+
 ## [1.8.1](https://github.com/AnnabelJoe/solarproof/compare/v1.8.0...v1.8.1) (2026-05-29)
 
 ### Bug Fixes
