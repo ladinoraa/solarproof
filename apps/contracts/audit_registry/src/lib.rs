@@ -277,6 +277,10 @@ mod tests {
         BytesN::from_array(env, &[1u8; 32])
     }
 
+    fn make_nonce(env: &Env, val: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[val; 32])
+    }
+
     #[test]
     fn test_anchor_and_verify() {
         let (env, api_signer, client) = setup();
