@@ -1,0 +1,79 @@
+name: Apply Branch Protection
+
+# Runs automatically when this file changes on main, and can be triggered manually.
+# Requires a PAT with `administration:write` stored as BRANCH_PROTECTION_TOKEN.
+# Falls back to GITHUB_TOKEN for read-only checks (protection won't be applied without the PAT).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/branch-protection.yml
+  workflow_dispatch:
+
+jobs:
+  protect:
+    name: Apply branch protection rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Protect main
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+        run: |
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/branches/main/protection \
+            --input - <<'EOF'
+          {
+            "required_status_checks": {
+              "strict": true,
+              "contexts": [
+                "Web (lint + type-check + test + build)",
+                "Contracts (fmt + clippy + test)"
+              ]
+            },
+            "enforce_admins": true,
+            "required_pull_request_reviews": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews": true,
+              "require_code_owner_reviews": false
+            },
+            "restrictions": null,
+            "allow_force_pushes": false,
+            "allow_deletions": false,
+            "block_creations": false,
+            "required_conversation_resolution": true
+          }
+          EOF
+
+      - name: Protect develop
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
+        run: |
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/branches/develop/protection \
+            --input - <<'EOF'
+          {
+            "required_status_checks": {
+              "strict": true,
+              "contexts": [
+                "Web (lint + type-check + test + build)",
+                "Contracts (fmt + clippy + test)"
+              ]
+            },
+            "enforce_admins": false,
+            "required_pull_request_reviews": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews": true,
+              "require_code_owner_reviews": false
+            },
+            "restrictions": null,
+            "allow_force_pushes": false,
+            "allow_deletions": false,
+            "block_creations": false,
+            "required_conversation_resolution": true
+          }
+          EOF
