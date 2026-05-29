@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
+import { checkCsrf } from '@/lib/csrf'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -22,6 +23,9 @@ const ReadingSchema = z.object({
  * Body: { meter_id, kwh, timestamp, signature_hex }
  */
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req)
+  if (csrfError) return csrfError
+
   const body = await req.json().catch(() => null)
   const parsed = ReadingSchema.safeParse(body)
   if (!parsed.success) {
