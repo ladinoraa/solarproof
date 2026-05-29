@@ -107,6 +107,10 @@ jobs:
   contracts:
     name: Contracts (fmt + clippy + test)
     runs-on: ubuntu-latest
+    env:
+      # Rotate accounts per run to avoid faucet rate limits
+      CI_ADMIN_ADDRESS: ${{ vars.CI_ADMIN_ADDRESS || '' }}
+      CI_MINTER_ADDRESS: ${{ vars.CI_MINTER_ADDRESS || '' }}
     steps:
       - uses: actions/checkout@v4
 
