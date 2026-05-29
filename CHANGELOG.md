@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/AnnabelJoe/solarproof/compare/v1.8.2...v1.9.0) (2026-05-29)
+
+### Features
+
+* configure log aggregation and retention ([#299](https://github.com/AnnabelJoe/solarproof/issues/299)) ([3ee0154](https://github.com/AnnabelJoe/solarproof/commit/3ee0154492cccc7ce78c61925c0b72c44120fdf4))
+
 ## [1.8.2](https://github.com/AnnabelJoe/solarproof/compare/v1.8.1...v1.8.2) (2026-05-29)
 
 ### Bug Fixes
