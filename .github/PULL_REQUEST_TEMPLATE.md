@@ -15,3 +15,4 @@ Closes #
 - [ ] No new lint warnings
 - [ ] Docs updated if needed
 - [ ] PR targets `develop`
+- [ ] Supabase queries audited for SQL injection (no raw SQL, parameterized methods used)

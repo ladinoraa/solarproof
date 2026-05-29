@@ -1,0 +1,304 @@
+'use client'
+
+import { useCallback, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Award, Leaf, Search, X } from 'lucide-react'
+import { RetireModal } from '@/components/retire-modal'
+import { useToast } from '@/components/toast'
+import { useWallet } from '@/hooks/useWallet'
+import { WalletGate } from '@/components/wallet-gate'
+
+interface Certificate {
+  id: string
+  kwh: number
+  issued_at: string
+  retired: boolean
+  retired_at: string | null
+  retired_by: string | null
+  mint_tx_hash: string | null
+  meter_id: string | null
+}
+
+interface CertificatesResponse {
+  data: Certificate[]
+  next_cursor: string | null
+  total: number
+}
+
+async function fetchCertificates(params: URLSearchParams): Promise<CertificatesResponse> {
+  const res = await fetch(`/api/certificates?${params.toString()}`)
+  if (!res.ok) throw new Error('Failed to load certificates')
+  return res.json()
+}
+
+export default function CertificatesPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const qc = useQueryClient()
+  const { toast, dismiss } = useToast()
+  const { address, connected } = useWallet()
+  const [retiring, setRetiring] = useState<Certificate | null>(null)
+
+  // Read filter state from URL
+  const q = searchParams.get('q') ?? ''
+  const status = searchParams.get('status') ?? ''
+  const dateFrom = searchParams.get('date_from') ?? ''
+  const dateTo = searchParams.get('date_to') ?? ''
+
+  // Local draft state for the search input (debounced via form submit)
+  const [draft, setDraft] = useState(q)
+
+  function pushParams(updates: Record<string, string>) {
+    const params = new URLSearchParams(searchParams.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) params.set(k, v)
+      else params.delete(k)
+    }
+    params.delete('cursor') // reset pagination on filter change
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
+  function clearFilters() {
+    setDraft('')
+    router.push(pathname)
+  }
+
+  const hasFilters = q || status || dateFrom || dateTo
+
+  const queryParams = new URLSearchParams()
+  if (q) queryParams.set('q', q)
+  if (status) queryParams.set('status', status)
+  if (dateFrom) queryParams.set('date_from', dateFrom)
+  if (dateTo) queryParams.set('date_to', dateTo)
+
+  const { data: response, isLoading, error } = useQuery({
+    queryKey: ['certificates', q, status, dateFrom, dateTo],
+    queryFn: () => fetchCertificates(queryParams),
+  })
+
+  const data = response?.data ?? []
+
+  const handleSearchSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      pushParams({ q: draft })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draft, searchParams]
+  )
+
+  async function handleRetire(reason: string) {
+    if (!retiring) return
+    const pendingId = toast('pending', 'Submitting retirement transaction…')
+    try {
+      const res = await fetch(`/api/certificates/${retiring.id}/retire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: address, reason }),
+      })
+      dismiss(pendingId)
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Unknown error' }))
+        toast('error', msg ?? 'Retirement failed')
+        return
+      }
+      toast('success', 'Certificate retired successfully')
+      setRetiring(null)
+      qc.invalidateQueries({ queryKey: ['certificates'] })
+    } catch (err) {
+      dismiss(pendingId)
+      toast('error', err instanceof Error ? err.message : 'Retirement failed')
+    }
+  }
+
+  return (
+    <WalletGate>
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Certificates</h1>
+
+        {/* Filter bar */}
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          {/* Search */}
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <input
+                type="search"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Cert ID or meter ID…"
+                aria-label="Search by certificate ID or meter ID"
+                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-md bg-yellow-400 px-3 py-1.5 text-xs font-medium text-gray-900 hover:bg-yellow-500"
+            >
+              Search
+            </button>
+          </form>
+
+          {/* Status filter */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="status-filter" className="text-xs text-gray-500 dark:text-gray-400">
+              Status
+            </label>
+            <select
+              id="status-filter"
+              value={status}
+              onChange={(e) => pushParams({ status: e.target.value })}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="retired">Retired</option>
+            </select>
+          </div>
+
+          {/* Date range */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="date-from" className="text-xs text-gray-500 dark:text-gray-400">
+              From
+            </label>
+            <input
+              id="date-from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => pushParams({ date_from: e.target.value })}
+              aria-label="Filter from date"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="date-to" className="text-xs text-gray-500 dark:text-gray-400">
+              To
+            </label>
+            <input
+              id="date-to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => pushParams({ date_to: e.target.value })}
+              aria-label="Filter to date"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </div>
+
+          {/* Clear filters */}
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              aria-label="Clear all filters"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              Clear
+            </button>
+          )}
+
+          {response && (
+            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+              {response.total} result{response.total !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+            Failed to load certificates.
+          </p>
+        )}
+
+        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+          <div className="overflow-x-auto">
+            <table
+              className="min-w-full divide-y divide-gray-200 bg-white text-sm dark:divide-gray-800 dark:bg-gray-900"
+              aria-label="Energy certificates"
+              aria-busy={isLoading}
+            >
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800/50">
+                  {['Certificate ID', 'Meter ID', 'kWh', 'Issued', 'Status', 'Action'].map((h) => (
+                    <th
+                      key={h}
+                      scope="col"
+                      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                      Loading…
+                    </td>
+                  </tr>
+                ) : data.length > 0 ? (
+                  data.map((cert) => (
+                    <tr key={cert.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                        {cert.id.slice(0, 8)}…
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
+                        {cert.meter_id ? `${cert.meter_id.slice(0, 8)}…` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                        {new Date(cert.issued_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        {cert.retired ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            <Leaf className="h-3 w-3" aria-hidden="true" />
+                            Retired
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                            <Award className="h-3 w-3" aria-hidden="true" />
+                            Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {!cert.retired && (
+                          <button
+                            onClick={() => setRetiring(cert)}
+                            disabled={!connected}
+                            aria-label={`Retire certificate ${cert.id.slice(0, 8)}`}
+                            className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Retire
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                      No certificates found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {retiring && (
+          <RetireModal
+            certificateId={retiring.id}
+            kwh={retiring.kwh}
+            onConfirm={handleRetire}
+            onClose={() => setRetiring(null)}
+          />
+        )}
+      </div>
+    </WalletGate>
+  )
+}
