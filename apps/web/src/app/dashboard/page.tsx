@@ -134,10 +134,7 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Stat cards                                                           */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="stats-heading" className="mb-8">
+        <section aria-labelledby="stats-heading" className="mb-8">
         <h2 id="stats-heading" className="sr-only">
           Key statistics
         </h2>
@@ -187,10 +184,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Charts                                                               */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="charts-heading" className="mb-8">
+        <section aria-labelledby="charts-heading" className="mb-8">
         <h2 id="charts-heading" className="sr-only">
           Energy charts
         </h2>
@@ -313,10 +307,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Recent readings table                                                */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="readings-heading">
+        <section aria-labelledby="readings-heading">
         <h2
           id="readings-heading"
           className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100"

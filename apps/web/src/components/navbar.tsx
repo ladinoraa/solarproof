@@ -11,6 +11,7 @@ const links = [
   { href: '/meters', label: 'Meters' },
   { href: '/certificates', label: 'Certificates' },
   { href: '/governance', label: 'Governance' },
+  { href: '/settings', label: 'Settings' },
   { href: '/verify', label: 'Verify' },
 ]
 
