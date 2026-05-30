@@ -1,3 +1,9 @@
+## [1.11.0](https://github.com/AnnabelJoe/solarproof/compare/v1.10.0...v1.11.0) (2026-05-30)
+
+### Features
+
+* implement global and section error boundaries [#256](https://github.com/AnnabelJoe/solarproof/issues/256) ([cc85f83](https://github.com/AnnabelJoe/solarproof/commit/cc85f83d86c9d83d90106b981a03aa07508868d1))
+
 ## [1.10.0](https://github.com/AnnabelJoe/solarproof/compare/v1.9.0...v1.10.0) (2026-05-30)
 
 ### Features
