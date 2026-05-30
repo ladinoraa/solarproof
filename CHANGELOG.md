@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/AnnabelJoe/solarproof/compare/v1.11.0...v1.12.0) (2026-05-30)
+
+### Features
+
+* add dark mode toggle to settings and enhance theme support [#253](https://github.com/AnnabelJoe/solarproof/issues/253) ([249dd4f](https://github.com/AnnabelJoe/solarproof/commit/249dd4fafc5a3540ab2b0d55c10cb7705b1e7e66))
+
 ## [1.11.0](https://github.com/AnnabelJoe/solarproof/compare/v1.10.0...v1.11.0) (2026-05-30)
 
 ### Features
