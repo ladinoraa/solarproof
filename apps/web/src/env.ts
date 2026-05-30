@@ -5,6 +5,8 @@ export const env = createEnv({
   server: {
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     MINTER_SECRET_KEY: z.string().min(56),
+    READINGS_RATE_LIMIT_PER_MINUTE: z.string().default('60'),
+    READINGS_RATE_LIMIT_WINDOW_SECONDS: z.string().default('60'),
   },
   client: {
     NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
@@ -23,5 +25,7 @@ export const env = createEnv({
     NEXT_PUBLIC_ENERGY_TOKEN_ID: process.env.NEXT_PUBLIC_ENERGY_TOKEN_ID,
     NEXT_PUBLIC_AUDIT_REGISTRY_ID: process.env.NEXT_PUBLIC_AUDIT_REGISTRY_ID,
     NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: process.env.NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID,
+    READINGS_RATE_LIMIT_PER_MINUTE: process.env.READINGS_RATE_LIMIT_PER_MINUTE,
+    READINGS_RATE_LIMIT_WINDOW_SECONDS: process.env.READINGS_RATE_LIMIT_WINDOW_SECONDS,
   },
 })

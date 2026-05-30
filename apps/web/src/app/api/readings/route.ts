@@ -5,7 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
-import { invalidateCert } from '@/lib/cache'
+import { invalidateCert, enforceRateLimit } from '@/lib/cache'
 
 function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -45,6 +45,25 @@ export async function POST(req: NextRequest) {
   }
 
   const { meter_id, kwh, timestamp, signature_hex } = parsed.data
+  const limit = Number(process.env.READINGS_RATE_LIMIT_PER_MINUTE ?? 60)
+  const windowSeconds = Number(process.env.READINGS_RATE_LIMIT_WINDOW_SECONDS ?? 60)
+  const rateKey = `rate:readings:${meter_id}`
+
+  const rate = await enforceRateLimit(rateKey, limit, windowSeconds)
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests, please try again later' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': rate.resetSeconds.toString(),
+          'X-RateLimit-Limit': limit.toString(),
+          'X-RateLimit-Remaining': rate.remaining.toString(),
+        },
+      }
+    )
+  }
+
   const db = createServiceClient()
 
   // Fetch meter + cooperative
