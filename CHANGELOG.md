@@ -1,3 +1,9 @@
+## [1.13.0](https://github.com/AnnabelJoe/solarproof/compare/v1.12.0...v1.13.0) (2026-05-30)
+
+### Features
+
+* implement rate limiting on /api/readings [#266](https://github.com/AnnabelJoe/solarproof/issues/266) ([b9e0b98](https://github.com/AnnabelJoe/solarproof/commit/b9e0b9888dcc2d54bc6ff89507d80bcd58d525a5))
+
 ## [1.12.0](https://github.com/AnnabelJoe/solarproof/compare/v1.11.0...v1.12.0) (2026-05-30)
 
 ### Features
