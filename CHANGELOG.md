@@ -1,3 +1,9 @@
+## [1.10.0](https://github.com/AnnabelJoe/solarproof/compare/v1.9.0...v1.10.0) (2026-05-30)
+
+### Features
+
+* add pagination and filtering to certificates [#258](https://github.com/AnnabelJoe/solarproof/issues/258) ([4d2bde0](https://github.com/AnnabelJoe/solarproof/commit/4d2bde06d7e6cf59102504433c0c59a8bc6fc5d1))
+
 ## [1.9.0](https://github.com/AnnabelJoe/solarproof/compare/v1.8.2...v1.9.0) (2026-05-29)
 
 ### Features
