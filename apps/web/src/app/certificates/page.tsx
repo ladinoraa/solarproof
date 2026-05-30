@@ -1,272 +1,304 @@
 'use client'
 
-import { useMemo, useState, useEffect, type FormEvent } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Filter, Zap } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Award, Leaf, Search, X } from 'lucide-react'
+import { RetireModal } from '@/components/retire-modal'
+import { useToast } from '@/components/toast'
+import { useWallet } from '@/hooks/useWallet'
+import { WalletGate } from '@/components/wallet-gate'
 
 interface Certificate {
   id: string
-  meter_id: string | null
-  reading_id: string
-  reading_hash: string
-  mint_tx_hash: string
-  anchor_tx_hash: string
   kwh: number
   issued_at: string
   retired: boolean
   retired_at: string | null
   retired_by: string | null
+  mint_tx_hash: string | null
+  meter_id: string | null
 }
 
-interface CertificateResponse {
-  certificates: Certificate[]
+interface CertificatesResponse {
+  data: Certificate[]
+  next_cursor: string | null
   total: number
-  page: number
-  pageSize: number
 }
 
-function normalizeSearchParams(searchParams: URLSearchParams) {
-  return {
-    page: Number(searchParams.get('page') ?? 1),
-    pageSize: Number(searchParams.get('pageSize') ?? 10),
-    status: searchParams.get('status') ?? '',
-    meterId: searchParams.get('meterId') ?? '',
-    startDate: searchParams.get('startDate') ?? '',
-    endDate: searchParams.get('endDate') ?? '',
-  }
+async function fetchCertificates(params: URLSearchParams): Promise<CertificatesResponse> {
+  const res = await fetch(`/api/certificates?${params.toString()}`)
+  if (!res.ok) throw new Error('Failed to load certificates')
+  return res.json()
 }
 
 export default function CertificatesPage() {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [formState, setFormState] = useState(() => normalizeSearchParams(new URLSearchParams()))
+  const qc = useQueryClient()
+  const { toast, dismiss } = useToast()
+  const { address, connected } = useWallet()
+  const [retiring, setRetiring] = useState<Certificate | null>(null)
 
-  const params = useMemo(() => normalizeSearchParams(searchParams ?? new URLSearchParams()), [searchParams])
+  // Read filter state from URL
+  const q = searchParams.get('q') ?? ''
+  const status = searchParams.get('status') ?? ''
+  const dateFrom = searchParams.get('date_from') ?? ''
+  const dateTo = searchParams.get('date_to') ?? ''
 
-  useEffect(() => {
-    setFormState(params)
-  }, [params])
+  // Local draft state for the search input (debounced via form submit)
+  const [draft, setDraft] = useState(q)
 
-  const queryString = useMemo(() => {
-    const next = new URLSearchParams()
-    next.set('page', String(params.page))
-    next.set('pageSize', String(params.pageSize))
-    if (params.status) next.set('status', params.status)
-    if (params.meterId) next.set('meterId', params.meterId)
-    if (params.startDate) next.set('startDate', params.startDate)
-    if (params.endDate) next.set('endDate', params.endDate)
-    return next.toString()
-  }, [params])
-
-  const {
-    data,
-    isLoading,
-    error,
-  } = useQuery<CertificateResponse>({
-    queryKey: ['certificates', queryString],
-    queryFn: async () => {
-      const response = await fetch(`/api/certificates?${queryString}`)
-      if (!response.ok) {
-        throw new Error('Failed to load certificates')
-      }
-      return response.json()
-    },
-    keepPreviousData: true,
-  })
-
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const next = new URLSearchParams()
-    next.set('page', '1')
-    next.set('pageSize', String(formState.pageSize))
-    if (formState.status) next.set('status', formState.status)
-    if (formState.meterId) next.set('meterId', formState.meterId)
-    if (formState.startDate) next.set('startDate', formState.startDate)
-    if (formState.endDate) next.set('endDate', formState.endDate)
-    router.push(`/certificates?${next.toString()}`)
+  function pushParams(updates: Record<string, string>) {
+    const params = new URLSearchParams(searchParams.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) params.set(k, v)
+      else params.delete(k)
+    }
+    params.delete('cursor') // reset pagination on filter change
+    router.push(`${pathname}?${params.toString()}`)
   }
 
-  function updatePage(page: number) {
-    const next = new URLSearchParams(searchParams ?? new URLSearchParams())
-    next.set('page', String(page))
-    router.push(`/certificates?${next.toString()}`)
+  function clearFilters() {
+    setDraft('')
+    router.push(pathname)
+  }
+
+  const hasFilters = q || status || dateFrom || dateTo
+
+  const queryParams = new URLSearchParams()
+  if (q) queryParams.set('q', q)
+  if (status) queryParams.set('status', status)
+  if (dateFrom) queryParams.set('date_from', dateFrom)
+  if (dateTo) queryParams.set('date_to', dateTo)
+
+  const { data: response, isLoading, error } = useQuery({
+    queryKey: ['certificates', q, status, dateFrom, dateTo],
+    queryFn: () => fetchCertificates(queryParams),
+  })
+
+  const data = response?.data ?? []
+
+  const handleSearchSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      pushParams({ q: draft })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draft, searchParams]
+  )
+
+  async function handleRetire(reason: string) {
+    if (!retiring) return
+    const pendingId = toast('pending', 'Submitting retirement transaction…')
+    try {
+      const res = await fetch(`/api/certificates/${retiring.id}/retire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet_address: address, reason }),
+      })
+      dismiss(pendingId)
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Unknown error' }))
+        toast('error', msg ?? 'Retirement failed')
+        return
+      }
+      toast('success', 'Certificate retired successfully')
+      setRetiring(null)
+      qc.invalidateQueries({ queryKey: ['certificates'] })
+    } catch (err) {
+      dismiss(pendingId)
+      toast('error', err instanceof Error ? err.message : 'Retirement failed')
+    }
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Certificates</h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Browse certificates with pagination, filtering, and status controls.
-          </p>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200">
-          <Zap className="h-4 w-4 text-yellow-500" aria-hidden="true" />
-          Page size: {params.pageSize}
-        </div>
-      </div>
+    <WalletGate>
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Certificates</h1>
 
-      <form onSubmit={applyFilters} className="mb-6 grid gap-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <div className="grid gap-4 md:grid-cols-3">
-          <label className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            Status
-            <select
-              value={formState.status}
-              onChange={(event) => setFormState((current) => ({ ...current, status: event.target.value }))}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-yellow-400 dark:focus:ring-yellow-500/20"
+        {/* Filter bar */}
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          {/* Search */}
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <input
+                type="search"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Cert ID or meter ID…"
+                aria-label="Search by certificate ID or meter ID"
+                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-md bg-yellow-400 px-3 py-1.5 text-xs font-medium text-gray-900 hover:bg-yellow-500"
             >
-              <option value="">All statuses</option>
+              Search
+            </button>
+          </form>
+
+          {/* Status filter */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="status-filter" className="text-xs text-gray-500 dark:text-gray-400">
+              Status
+            </label>
+            <select
+              id="status-filter"
+              value={status}
+              onChange={(e) => pushParams({ status: e.target.value })}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="">All</option>
               <option value="active">Active</option>
               <option value="retired">Retired</option>
             </select>
-          </label>
+          </div>
 
-          <label className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            Meter ID
+          {/* Date range */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="date-from" className="text-xs text-gray-500 dark:text-gray-400">
+              From
+            </label>
             <input
-              value={formState.meterId}
-              onChange={(event) => setFormState((current) => ({ ...current, meterId: event.target.value }))}
-              type="text"
-              placeholder="Meter UUID"
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-yellow-400 dark:focus:ring-yellow-500/20"
+              id="date-from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => pushParams({ date_from: e.target.value })}
+              aria-label="Filter from date"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
-          </label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="date-to" className="text-xs text-gray-500 dark:text-gray-400">
+              To
+            </label>
+            <input
+              id="date-to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => pushParams({ date_to: e.target.value })}
+              aria-label="Filter to date"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </div>
 
-          <label className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            Page size
-            <select
-              value={formState.pageSize}
-              onChange={(event) => setFormState((current) => ({ ...current, pageSize: Number(event.target.value) }))}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-yellow-400 dark:focus:ring-yellow-500/20"
+          {/* Clear filters */}
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              aria-label="Clear all filters"
             >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-            </select>
-          </label>
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              Clear
+            </button>
+          )}
+
+          {response && (
+            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+              {response.total} result{response.total !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            Start date
-            <input
-              type="date"
-              value={formState.startDate}
-              onChange={(event) => setFormState((current) => ({ ...current, startDate: event.target.value }))}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-yellow-400 dark:focus:ring-yellow-500/20"
-            />
-          </label>
-          <label className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            End date
-            <input
-              type="date"
-              value={formState.endDate}
-              onChange={(event) => setFormState((current) => ({ ...current, endDate: event.target.value }))}
-              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-yellow-400 dark:focus:ring-yellow-500/20"
-            />
-          </label>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 rounded-2xl bg-yellow-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400"
-          >
-            <Filter className="h-4 w-4" aria-hidden="true" />
-            Apply filters
-          </button>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Showing {data?.certificates.length ?? 0} of {data?.total ?? 0} certificates.
+        {error && (
+          <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+            Failed to load certificates.
           </p>
-        </div>
-      </form>
+        )}
 
-      {error && (
-        <p className="mb-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
-          Unable to load certificates. Please try again.
-        </p>
-      )}
-
-      <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-gray-700 dark:text-gray-200">
-            <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-              <tr>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Meter ID</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">kWh</th>
-                <th className="px-4 py-3">Issued</th>
-                <th className="px-4 py-3">Anchor tx</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {isLoading ? (
-                Array.from({ length: params.pageSize }).map((_, index) => (
-                  <tr key={index} className="animate-pulse">
-                    <td className="px-4 py-4 h-12 bg-gray-100 dark:bg-gray-900" colSpan={6} />
-                  </tr>
-                ))
-              ) : data && data.certificates.length > 0 ? (
-                data.certificates.map((certificate) => (
-                  <tr key={certificate.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                    <td className="px-4 py-4 font-mono text-xs text-gray-700 dark:text-gray-300">{certificate.id}</td>
-                    <td className="px-4 py-4 text-gray-900 dark:text-gray-100">{certificate.meter_id ?? 'N/A'}</td>
-                    <td className="px-4 py-4">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                          certificate.retired
-                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                            : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                        }`}
-                      >
-                        {certificate.retired ? 'Retired' : 'Active'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-gray-900 dark:text-gray-100">{certificate.kwh}</td>
-                    <td className="px-4 py-4 text-gray-600 dark:text-gray-400">
-                      {new Date(certificate.issued_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-4 break-all text-blue-600 dark:text-blue-300">{certificate.anchor_tx_hash}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-                    No certificates match the current filter.
-                  </td>
+        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+          <div className="overflow-x-auto">
+            <table
+              className="min-w-full divide-y divide-gray-200 bg-white text-sm dark:divide-gray-800 dark:bg-gray-900"
+              aria-label="Energy certificates"
+              aria-busy={isLoading}
+            >
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800/50">
+                  {['Certificate ID', 'Meter ID', 'kWh', 'Issued', 'Status', 'Action'].map((h) => (
+                    <th
+                      key={h}
+                      scope="col"
+                      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                      Loading…
+                    </td>
+                  </tr>
+                ) : data.length > 0 ? (
+                  data.map((cert) => (
+                    <tr key={cert.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                        {cert.id.slice(0, 8)}…
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
+                        {cert.meter_id ? `${cert.meter_id.slice(0, 8)}…` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                        {new Date(cert.issued_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        {cert.retired ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            <Leaf className="h-3 w-3" aria-hidden="true" />
+                            Retired
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                            <Award className="h-3 w-3" aria-hidden="true" />
+                            Active
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {!cert.retired && (
+                          <button
+                            onClick={() => setRetiring(cert)}
+                            disabled={!connected}
+                            aria-label={`Retire certificate ${cert.id.slice(0, 8)}`}
+                            className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Retire
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                      No certificates found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-6 flex items-center justify-between rounded-3xl border border-gray-200 bg-white px-4 py-4 text-sm text-gray-700 shadow-sm dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200">
-        <button
-          type="button"
-          onClick={() => updatePage(Math.max(1, params.page - 1))}
-          disabled={params.page <= 1}
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Previous
-        </button>
-        <span>
-          Page {params.page} of {Math.max(1, Math.ceil((data?.total ?? 0) / params.pageSize))}
-        </span>
-        <button
-          type="button"
-          onClick={() => updatePage(params.page + 1)}
-          disabled={data ? params.page >= Math.ceil(data.total / params.pageSize) : false}
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800"
-        >
-          Next
-          <ArrowRight className="h-4 w-4" aria-hidden="true" />
-        </button>
+        {retiring && (
+          <RetireModal
+            certificateId={retiring.id}
+            kwh={retiring.kwh}
+            onConfirm={handleRetire}
+            onClose={() => setRetiring(null)}
+          />
+        )}
       </div>
-    </div>
+    </WalletGate>
   )
 }
