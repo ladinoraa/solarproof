@@ -16,6 +16,7 @@ import {
 import { useTheme } from 'next-themes'
 import { Zap, Award, Leaf, TrendingUp } from 'lucide-react'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
+import { SectionErrorBoundary } from '@/components/error-boundary'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,10 +135,8 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Stat cards                                                           */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="stats-heading" className="mb-8">
+      <SectionErrorBoundary sectionName="Statistics">
+        <section aria-labelledby="stats-heading" className="mb-8">
         <h2 id="stats-heading" className="sr-only">
           Key statistics
         </h2>
@@ -186,11 +185,10 @@ export default function DashboardPage() {
           ) : null}
         </div>
       </section>
+      </SectionErrorBoundary>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Charts                                                               */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="charts-heading" className="mb-8">
+      <SectionErrorBoundary sectionName="Charts">
+        <section aria-labelledby="charts-heading" className="mb-8">
         <h2 id="charts-heading" className="sr-only">
           Energy charts
         </h2>
@@ -312,11 +310,10 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+      </SectionErrorBoundary>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Recent readings table                                                */}
-      {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="readings-heading">
+      <SectionErrorBoundary sectionName="Recent readings table">
+        <section aria-labelledby="readings-heading">
         <h2
           id="readings-heading"
           className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100"
@@ -418,6 +415,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+      </SectionErrorBoundary>
     </div>
   )
 }

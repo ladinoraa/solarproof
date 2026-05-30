@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { Navbar } from '@/components/navbar'
+import { GlobalErrorBoundary } from '@/components/error-boundary'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
@@ -24,10 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <Providers>
-          <Navbar />
-          <main className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</main>
-        </Providers>
+        <GlobalErrorBoundary>
+          <Providers>
+            <Navbar />
+            <main className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</main>
+          </Providers>
+        </GlobalErrorBoundary>
         <Analytics />
         <SpeedInsights />
       </body>
