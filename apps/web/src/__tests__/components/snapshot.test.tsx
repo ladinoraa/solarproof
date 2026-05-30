@@ -1,16 +1,9 @@
 /**
  * Snapshot tests for key UI components
- * Issue #119 — catch unintended visual regressions
- *
- * Components tested:
- *  - Skeleton, StatCardSkeleton, ChartSkeleton, TableRowSkeleton, SectionSkeleton
- *  - MeterReadingRow (verified + pending states)
- *
- * To update snapshots after intentional changes:
- *   pnpm test -- --update-snapshots
+ * Issue #328 — catch unintended visual regressions
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render } from '@testing-library/react'
 import {
   Skeleton,
@@ -20,6 +13,68 @@ import {
   SectionSkeleton,
 } from '@/components/skeleton'
 import { MeterReadingRow } from '@/components/meter-reading-row'
+import { CopyButton, CopyableText } from '@/components/copy-button'
+import { LanguageSwitcher } from '@/components/language-switcher'
+import { ToastProvider, ToastContainer } from '@/components/toast'
+import { Navbar } from '@/components/navbar'
+import React from 'react'
+
+// Mocks
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+  }),
+  useTransition: () => [false, vi.fn()],
+}))
+
+vi.mock('next-themes', () => ({
+  useTheme: () => ({
+    resolvedTheme: 'light',
+    setTheme: vi.fn(),
+  }),
+}))
+
+vi.mock('@/hooks/useWallet', () => ({
+  useWallet: () => ({
+    address: 'GABC...XYZ',
+    connected: true,
+    loading: false,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  }),
+}))
+
+vi.mock('@/env', () => ({
+  env: {
+    NEXT_PUBLIC_STELLAR_NETWORK: 'testnet',
+  },
+}))
+
+vi.mock('next-intl', () => ({
+  useTranslations: (namespace: string) => (key: string) => `${namespace}.${key}`,
+}))
+
+// Mock lucide-react to avoid random IDs in snapshots
+vi.mock('lucide-react', async () => {
+  const actual = await vi.importActual('lucide-react')
+  return {
+    ...actual,
+    Sun: () => <div data-testid="sun-icon" />,
+    Moon: () => <div data-testid="moon-icon" />,
+    Menu: () => <div data-testid="menu-icon" />,
+    X: () => <div data-testid="x-icon" />,
+    Wallet: () => <div data-testid="wallet-icon" />,
+    LogOut: () => <div data-testid="logout-icon" />,
+    Copy: () => <div data-testid="copy-icon" />,
+    Check: () => <div data-testid="check-icon" />,
+    CheckCircle: () => <div data-testid="check-circle-icon" />,
+    XCircle: () => <div data-testid="x-circle-icon" />,
+    Loader2: () => <div data-testid="loader-icon" />,
+  }
+})
 
 describe('Skeleton components snapshots', () => {
   it('Skeleton renders correctly', () => {
@@ -107,6 +162,48 @@ describe('MeterReadingRow snapshots', () => {
         </tbody>
       </table>
     )
+    expect(container.firstChild).toMatchSnapshot()
+  })
+})
+
+describe('Copy components snapshots', () => {
+  it('CopyButton renders correctly', () => {
+    const { container } = render(<CopyButton value="test-value" />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+
+  it('CopyableText renders correctly (mono)', () => {
+    const { container } = render(<CopyableText value="0x1234567890" />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+
+  it('CopyableText renders correctly (non-mono)', () => {
+    const { container } = render(<CopyableText value="test" mono={false} />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+})
+
+describe('LanguageSwitcher snapshots', () => {
+  it('LanguageSwitcher renders correctly', () => {
+    const { container } = render(<LanguageSwitcher current="en" />)
+    expect(container.firstChild).toMatchSnapshot()
+  })
+})
+
+describe('Toast components snapshots', () => {
+  it('Empty ToastContainer renders nothing', () => {
+    const { container } = render(
+      <ToastProvider>
+        <ToastContainer />
+      </ToastProvider>
+    )
+    expect(container.firstChild).toBeNull()
+  })
+})
+
+describe('Navbar snapshots', () => {
+  it('Navbar renders correctly', () => {
+    const { container } = render(<Navbar locale="en" />)
     expect(container.firstChild).toMatchSnapshot()
   })
 })
