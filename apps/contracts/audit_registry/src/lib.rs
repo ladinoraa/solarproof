@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bucket_collision() {
+    fn test_issue_281_bucket_collision() {
         let (env, api_signer, client) = setup();
         // Force hashes that likely end up in the same bucket
         // Our bucket ID is ((hash[0] << 8) | hash[1]) % 1024
