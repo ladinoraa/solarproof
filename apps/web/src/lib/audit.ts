@@ -6,6 +6,7 @@ export type AuditAction =
   | 'certificate.retire'
   | 'meter.register'
   | 'meter.deactivate'
+  | 'meter.revoke'
 
 interface AuditEntry {
   operator_id: string

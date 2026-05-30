@@ -162,14 +162,15 @@ export async function POST(req: NextRequest) {
   // Fetch meter + cooperative
   const { data: meter } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, cooperatives(admin_address)')
+    .select('id, pubkey_hex, cooperative_id, revoked_at, cooperatives(admin_address)')
     .eq('id', meter_id)
     .eq('active', true)
-    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null } | null }
+    .is('revoked_at', null)
+    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; revoked_at: string | null; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
-    log.warn('readings.post.meter_not_found', { meter_id })
-    return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
+    log.warn('readings.post.meter_not_found_or_revoked', { meter_id })
+    return NextResponse.json({ error: 'Meter not found, inactive, or revoked' }, { status: 404 })
   }
 
   // Rate limit: 60 requests/minute per meter public key
