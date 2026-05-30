@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   npm-audit:
@@ -42,6 +43,20 @@ jobs:
               repo: context.repo.repo,
               body: `### ${status} pnpm audit\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``
             });
+      - name: Create Issue on failure (Scheduled)
+        if: github.event_name == 'schedule' && steps.npm_audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/npm-audit.txt', 'utf8');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Weekly pnpm audit failed: High-severity vulnerabilities detected',
+              body: `The weekly pnpm audit found high-severity vulnerabilities in JS dependencies.\n\n### Audit Output:\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``,
+              labels: ['security', 'devops']
+            });
       - name: Fail if audit found high/critical issues
         if: steps.npm_audit.outcome == 'failure'
         run: exit 1
@@ -54,7 +69,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.85.0"
+          toolchain: "1.88.0"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/contracts
@@ -78,6 +93,20 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `### ${status} cargo audit\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``
+            });
+      - name: Create Issue on failure (Scheduled)
+        if: github.event_name == 'schedule' && steps.cargo_audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/cargo-audit.txt', 'utf8');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Weekly cargo audit failed: Vulnerabilities detected',
+              body: `The weekly cargo audit found vulnerabilities in Rust dependencies.\n\n### Audit Output:\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``,
+              labels: ['security', 'devops']
             });
       - name: Fail if audit found vulnerabilities
         if: steps.cargo_audit.outcome == 'failure'
