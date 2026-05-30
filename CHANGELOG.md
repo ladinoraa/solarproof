@@ -1,3 +1,9 @@
+## [1.15.0](https://github.com/AnnabelJoe/solarproof/compare/v1.14.0...v1.15.0) (2026-05-30)
+
+### Features
+
+* **contracts:** optimize Soroban storage for audit-registry ([f9055f7](https://github.com/AnnabelJoe/solarproof/commit/f9055f7bd652a4fedd4ca454386452bbe0d8d779)), closes [#281](https://github.com/AnnabelJoe/solarproof/issues/281)
+
 ## [1.14.0](https://github.com/AnnabelJoe/solarproof/compare/v1.13.0...v1.14.0) (2026-05-30)
 
 ### Features
