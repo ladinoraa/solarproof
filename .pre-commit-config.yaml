@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: eslint
+        name: ESLint
+        language: system
+        entry: bash -c 'cd apps/web && pnpm lint'
+        types: [file]
+        files: \.(ts|tsx|js|jsx)$
+        pass_filenames: false
+
+      - id: prettier
+        name: Prettier
+        language: system
+        entry: pnpm prettier --check
+        types: [file]
+        files: \.(ts|tsx|md|json)$
+
+      - id: cargo-clippy
+        name: Cargo Clippy
+        language: system
+        entry: bash -c 'cd apps/contracts && cargo clippy --all-targets --all-features -- -D warnings'
+        types: [file]
+        files: \.rs$
+        pass_filenames: false
+
+      - id: cargo-fmt
+        name: Cargo fmt
+        language: system
+        entry: bash -c 'cd apps/contracts && cargo fmt --all -- --check'
+        types: [file]
+        files: \.rs$
+        pass_filenames: false

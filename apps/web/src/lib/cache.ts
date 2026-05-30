@@ -57,52 +57,88 @@ async function redisDel(key: string): Promise<void> {
   console.log(`[cache] DEL ${key}`)
 }
 
-async function redisEval<T>(script: string, keys: string[], args: (string | number)[]): Promise<T> {
-  const json = await redisFetch('/eval', {
-    method: 'POST',
-    body: JSON.stringify({ script, keys, args }),
-  })
-  return json.result as T
-}
-
+/**
+ * Build the Redis key for a certificate cache entry.
+ *
+ * @param id - Certificate UUID, reading hash, or mint transaction hash.
+ * @returns Redis key string in the form `cert:<id>`.
+ */
 export function certCacheKey(id: string) {
   return `cert:${id}`
 }
 
+/**
+ * Retrieve a cached certificate chain-of-custody from Redis.
+ *
+ * @param id - Certificate UUID, reading hash, or mint transaction hash.
+ * @returns The cached value, or `null` on a cache miss or when Redis is unavailable.
+ */
 export async function getCachedCert<T>(id: string): Promise<T | null> {
   const hit = await redisGet<T>(certCacheKey(id))
   if (!hit) console.log(`[cache] MISS ${certCacheKey(id)}`)
   return hit
 }
 
+/**
+ * Store a certificate chain-of-custody in Redis with a 60-second TTL.
+ *
+ * @param id - Cache key (certificate UUID, reading hash, or mint tx hash).
+ * @param value - Serialisable chain-of-custody object to cache.
+ */
 export async function setCachedCert(id: string, value: unknown): Promise<void> {
   await redisSet(certCacheKey(id), value, CERT_TTL)
 }
 
+/**
+ * Delete one or more certificate cache entries from Redis.
+ * Called after a mint or retirement to prevent stale data being served.
+ *
+ * @param ids - One or more cache keys to invalidate.
+ */
 export async function invalidateCert(...ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => redisDel(certCacheKey(id))))
 }
 
-export async function enforceRateLimit(
-  key: string,
-  limit: number,
-  windowSeconds: number
-): Promise<{ allowed: boolean; remaining: number; resetSeconds: number }> {
-  // Use Lua script for atomic INCR + EXPIRE
-  const script = `
-    local current = redis.call("INCR", KEYS[1])
-    if current == 1 then
-      redis.call("EXPIRE", KEYS[1], ARGV[1])
-    end
-    return {current, redis.call("TTL", KEYS[1])}
-  `
-  const [count, ttl] = await redisEval<[number, number]>(script, [key], [windowSeconds])
+// ── Rate limiting ─────────────────────────────────────────────────────────────
 
-  const remaining = Math.max(limit - count, 0)
+const RATE_LIMIT_WINDOW = 60 // seconds
+const RATE_LIMIT_MAX = 60    // requests per window
 
-  return {
-    allowed: count <= limit,
-    remaining,
-    resetSeconds: ttl < 0 ? 0 : ttl,
+/**
+ * Sliding-window rate limiter keyed by meter public key.
+ * Returns { allowed: true } or { allowed: false, retryAfter: number }.
+ * Falls back to allowing all requests when Redis is unavailable.
+ */
+export async function checkRateLimit(pubkeyHex: string): Promise<{ allowed: true } | { allowed: false; retryAfter: number }> {
+  if (!UPSTASH_REDIS_REST_URL) return { allowed: true }
+
+  const key = `rl:${pubkeyHex}`
+  const now = Math.floor(Date.now() / 1000)
+  const windowStart = now - RATE_LIMIT_WINDOW
+
+  // Use Upstash pipeline: ZREMRANGEBYSCORE + ZADD + ZCARD + EXPIRE
+  const pipeline = [
+    ['ZREMRANGEBYSCORE', key, '-inf', String(windowStart)],
+    ['ZADD', key, String(now), `${now}-${Math.random()}`],
+    ['ZCARD', key],
+    ['EXPIRE', key, String(RATE_LIMIT_WINDOW * 2)],
+  ]
+
+  const res = await fetch(redisUrl('/pipeline'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(pipeline),
+    cache: 'no-store',
+  })
+
+  const results = await res.json() as Array<{ result: unknown }>
+  const count = results[2]?.result as number ?? 0
+
+  if (count > RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: RATE_LIMIT_WINDOW }
   }
+  return { allowed: true }
 }
