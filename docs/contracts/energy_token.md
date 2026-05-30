@@ -56,6 +56,19 @@ Emits event: `("burn", (from, amount))`
 
 ---
 
+### `retire(env, from, amount)`
+
+Permanently retires (burns) certificates, emitting a distinct `retire` event for indexers.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `from` | `Address` | Certificate holder |
+| `amount` | `i128` | Amount in stroops (must be > 0, ≤ balance) |
+
+Emits event: `("retire", (from, amount))`
+
+---
+
 ### `transfer(env, from, to, amount)`
 
 Transfers `amount` from `from` to `to`. Requires `from` auth.
@@ -113,7 +126,19 @@ Returns `7`.
 | Panic message | Cause |
 |---|---|
 | `"already initialized"` | `initialize` called more than once |
-| `"amount must be positive"` | `amount ≤ 0` passed to `mint`, `burn`, or `transfer` |
-| `"no balance"` | `burn` called on account with no balance entry |
-| `"insufficient balance"` | `burn` or `transfer` amount exceeds balance |
+| `"amount must be positive"` | `amount ≤ 0` passed to `mint`, `burn`, `retire`, or `transfer` |
+| `"no balance"` | `burn`/`retire` called on account with no balance entry |
+| `"insufficient balance"` | `burn`, `retire`, or `transfer` amount exceeds balance |
 | `"not initialized"` | Contract called before `initialize` |
+
+---
+
+## Events
+
+| Topic | Data | Emitted by |
+|---|---|---|
+| `"mint"` | `(to: Address, amount: i128)` | `mint` |
+| `"burn"` | `(from: Address, amount: i128)` | `burn`, `burn_from` |
+| `"retire"` | `(from: Address, amount: i128)` | `retire` |
+| `"transfer"` | `(from: Address, to: Address, amount: i128)` | `transfer`, `transfer_from` |
+| `"approve"` | `(from: Address, spender: Address, amount: i128)` | `approve` |

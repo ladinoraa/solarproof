@@ -3,9 +3,12 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { Navbar } from '@/components/navbar'
-import { GlobalErrorBoundary } from '@/components/error-boundary'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { NextIntlClientProvider } from 'next-intl'
+import { getMessages, getLocale } from 'next-intl/server'
+import type { Locale } from '@/lib/locales'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -21,16 +24,21 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale()
+  const messages = await getMessages()
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body className={inter.className}>
-        <GlobalErrorBoundary>
+        <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>
-            <Navbar />
-            <main className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</main>
+            <Navbar locale={locale as Locale} />
+            <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </main>
           </Providers>
-        </GlobalErrorBoundary>
+        </NextIntlClientProvider>
         <Analytics />
         <SpeedInsights />
       </body>

@@ -1,112 +1,80 @@
 'use client'
 
-import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { AlertTriangle, RefreshCcw } from 'lucide-react'
+import React from 'react'
 import * as Sentry from '@sentry/nextjs'
+import { AlertTriangle } from 'lucide-react'
 
-interface SectionErrorBoundaryProps {
-  sectionName: string
-  children: ReactNode
+interface Props {
+  children: React.ReactNode
+  /** Smaller inline fallback for panel-level boundaries */
+  inline?: boolean
 }
 
-interface SectionErrorBoundaryState {
-  hasError: boolean
-  error?: Error
+interface State {
+  error: Error | null
 }
 
-export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, SectionErrorBoundaryState> {
-  state: SectionErrorBoundaryState = { hasError: false }
+export class ErrorBoundary extends React.Component<Props, State> {
+  state: State = { error: null }
 
-  static getDerivedStateFromError(error: Error): SectionErrorBoundaryState {
-    return { hasError: true, error }
+  static getDerivedStateFromError(error: Error): State {
+    return { error }
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    Sentry.captureException(error, {
-      extra: {
-        section: this.props.sectionName,
-        componentStack: info.componentStack,
-      },
-    })
-    console.error(`Dashboard section error: ${this.props.sectionName}`, error, info)
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    Sentry.captureException(error, { extra: { componentStack: info.componentStack } })
   }
 
-  reset = () => {
-    this.setState({ hasError: false, error: undefined })
-  }
+  reset = () => this.setState({ error: null })
 
   render() {
-    if (this.state.hasError) {
+    if (!this.state.error) return this.props.children
+
+    if (this.props.inline) {
       return (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-800 dark:bg-red-950/50">
-          <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-red-600 dark:text-red-300" aria-hidden="true" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {this.props.sectionName} failed to load.
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            An unexpected error occurred in this section. Please try again.
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center gap-3 rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-800 dark:bg-red-950/40"
+        >
+          <AlertTriangle className="h-6 w-6 text-red-500" aria-hidden="true" />
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">
+            This panel failed to load.
           </p>
           <button
-            type="button"
             onClick={this.reset}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm transition hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+            className="rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-900/60"
           >
-            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-            Retry section
+            Retry
           </button>
         </div>
       )
     }
 
-    return this.props.children
-  }
-}
-
-interface GlobalErrorBoundaryProps {
-  children: ReactNode
-}
-
-export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, SectionErrorBoundaryState> {
-  state: SectionErrorBoundaryState = { hasError: false }
-
-  static getDerivedStateFromError(error: Error): SectionErrorBoundaryState {
-    return { hasError: true, error }
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    Sentry.captureException(error, {
-      extra: {
-        type: 'global',
-        componentStack: info.componentStack,
-      },
-    })
-    console.error('Global application error:', error, info)
-  }
-
-  reset = () => {
-    this.setState({ hasError: false, error: undefined })
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-4 text-center bg-gray-50 dark:bg-gray-950">
-          <AlertTriangle className="h-12 w-12 text-red-500" aria-hidden="true" />
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Something went wrong</h1>
-          <p className="max-w-md text-gray-600 dark:text-gray-400">
-            A critical error occurred in the application. We have been notified and are looking into it.
-          </p>
+    return (
+      <div
+        role="alert"
+        className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-4 text-center"
+      >
+        <AlertTriangle className="h-12 w-12 text-red-500" aria-hidden="true" />
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Something went wrong</h2>
+        <p className="max-w-md text-gray-500 dark:text-gray-400">
+          An unexpected error occurred. You can try again or reload the page.
+        </p>
+        <div className="flex gap-3">
           <button
-            type="button"
             onClick={this.reset}
-            className="rounded-lg bg-yellow-400 px-6 py-3 font-semibold text-gray-900 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 dark:focus:ring-offset-gray-950"
+            className="rounded-lg bg-yellow-400 px-5 py-2.5 font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
           >
-            Try to recover
+            Try again
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="rounded-lg border border-gray-300 px-5 py-2.5 font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Reload page
           </button>
         </div>
-      )
-    }
-
-    return this.props.children
+      </div>
+    )
   }
 }
