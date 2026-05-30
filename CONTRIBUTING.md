@@ -15,7 +15,7 @@ git clone https://github.com/AnnabelJoe/solarproof.git
 cd solarproof
 git checkout develop
 git checkout -b feat/your-feature
-pnpm install
+pnpm install --frozen-lockfile
 ```
 
 ---
@@ -120,3 +120,38 @@ Contract changes require extra care:
 ## Reporting Issues
 
 Use the [issue templates](../../issues/new/choose). For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+
+---
+
+## Regression Tests
+
+Every closed bug issue must have a corresponding regression test to prevent the bug from being silently reintroduced.
+
+### Process
+
+1. **When a bug is fixed**, add a regression test in the same PR as the fix (or in a follow-up PR referencing the issue).
+2. **File location** — regression tests live in `apps/web/src/app/api/__tests__/regression.test.ts` for API-layer bugs. For contract bugs, add tests in the relevant contract's `#[cfg(test)]` module.
+3. **Naming convention** — test names must include the issue number:
+   - TypeScript: `it('test_issue_<N>_<description>', ...)`
+   - Rust: `#[test] fn test_issue_<N>_<description>()`
+4. **Link the issue** — add a comment at the top of the test or describe block referencing the issue number and a one-line description of the bug.
+5. **CI** — regression tests run automatically in CI via `pnpm test` (TypeScript) and `cargo test` (Rust). No extra configuration is needed.
+
+### Example
+
+```ts
+// Regression for #29 — API routes accepted raw input without schema validation
+it('test_issue_29_readings_rejects_negative_kwh', async () => {
+  const res = await POST(makeRequest({ meter_id: METER_ID, kwh: -1, ... }))
+  expect(res.status).toBe(400)
+})
+```
+
+### Covered issues
+
+| Issue | Description | Test file |
+|-------|-------------|-----------|
+| #29 | Input validation on all API routes | `src/app/api/__tests__/regression.test.ts` |
+| #49 | Stellar account existence check before minting | `src/app/api/__tests__/regression.test.ts` |
+| #51 | Overflow protection in energy_token mint arithmetic | `apps/contracts/energy_token/src/lib.rs` |
+| #73 | Reading deduplication in audit_registry | `apps/contracts/audit_registry/src/lib.rs`, `src/app/api/__tests__/regression.test.ts` |
