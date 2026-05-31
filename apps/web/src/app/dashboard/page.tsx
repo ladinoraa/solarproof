@@ -14,7 +14,7 @@ import {
   Legend,
 } from 'recharts'
 import { useTheme } from 'next-themes'
-import { Zap, Award, Leaf, TrendingUp } from 'lucide-react'
+import { Zap, Award, Leaf, TrendingUp, BookOpen } from 'lucide-react'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,18 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
+        <a
+          href="https://github.com/AnnabelJoe/solarproof/blob/main/docs/USER_GUIDE.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+        >
+          <BookOpen className="h-4 w-4" aria-hidden="true" />
+          User Guide
+        </a>
+      </div>
 
       {/* ------------------------------------------------------------------ */}
       {/* Stat cards                                                           */}
