@@ -81,6 +81,11 @@ impl EnergyToken {
     // ── SEP-41 balance / transfer ────────────────────────────────────────────
 
     /// Returns the token balance of `account`. Returns `0` for unknown accounts.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let bal = client.balance(&holder_address); // e.g. 125_000_000 (12.5 kWh in stroops)
+    /// ```
     pub fn balance(env: Env, account: Address) -> i128 {
         env.storage()
             .persistent()
@@ -292,6 +297,11 @@ impl EnergyToken {
     }
 
     /// Returns the current circulating supply: `total_minted - total_burned`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let supply = client.total_supply(); // tokens currently in circulation
+    /// ```
     pub fn total_supply(env: Env) -> i128 {
         let minted: i128 = env
             .storage()

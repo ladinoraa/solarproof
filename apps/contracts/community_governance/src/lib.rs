@@ -242,14 +242,29 @@ impl CommunityGovernance {
             .set(&DataKey::Version, &new_version);
     }
 
-    /// Set quorum in basis points (1–10 000). Admin-only.
+    /// Set the minimum participation quorum in basis points (1–10 000). Admin-only.
+    ///
+    /// # Arguments
+    /// * `admin` — administrator address (must authorise).
+    /// * `bps`   — quorum in basis points, e.g. `1000` = 10 %.
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"quorum_bps must be 1-10000"` if `bps` is out of range.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.set_quorum_bps(&admin, &2_000_u32); // 20 %
+    /// ```
     pub fn set_quorum_bps(env: Env, admin: Address, bps: u32) {
         admin.require_auth();
         assert!(bps >= 1 && bps <= 10_000, "quorum_bps must be 1-10000");
         env.storage().instance().set(&DataKey::QuorumBps, &bps);
     }
 
-    /// Returns the current quorum in basis points.
+    /// Returns the current quorum in basis points (default: `1000` = 10 %).
     pub fn get_quorum_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -257,14 +272,29 @@ impl CommunityGovernance {
             .unwrap_or(DEFAULT_QUORUM_BPS)
     }
 
-    /// Set approval threshold in basis points (1–10 000). Admin-only.
+    /// Set the yes-vote approval threshold in basis points (1–10 000). Admin-only.
+    ///
+    /// # Arguments
+    /// * `admin` — administrator address (must authorise).
+    /// * `bps`   — threshold in basis points, e.g. `5100` = 51 %.
+    ///
+    /// # Authorization
+    /// Requires `admin` authorisation.
+    ///
+    /// # Panics
+    /// * `"threshold_bps must be 1-10000"` if `bps` is out of range.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.set_threshold_bps(&admin, &6_000_u32); // 60 %
+    /// ```
     pub fn set_threshold_bps(env: Env, admin: Address, bps: u32) {
         admin.require_auth();
         assert!(bps >= 1 && bps <= 10_000, "threshold_bps must be 1-10000");
         env.storage().instance().set(&DataKey::ThresholdBps, &bps);
     }
 
-    /// Returns the current approval threshold in basis points.
+    /// Returns the current approval threshold in basis points (default: `5100` = 51 %).
     pub fn get_threshold_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -543,6 +573,8 @@ impl CommunityGovernance {
     }
 
     /// Returns the pending upgrade proposal, if any.
+    ///
+    /// Returns `None` if no upgrade has been proposed or the last one was cancelled/executed.
     pub fn pending_upgrade(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&DataKey::PendingUpgrade)
     }
@@ -565,7 +597,7 @@ impl CommunityGovernance {
             .set(&DataKey::ExecuteTimelock, &ledgers);
     }
 
-    /// Returns the current execution timelock in ledgers.
+    /// Returns the current execution timelock in ledgers (default: `8640` ≈ 24 h).
     pub fn get_execution_timelock(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -615,7 +647,7 @@ impl CommunityGovernance {
         proposals.get(proposal_id)
     }
 
-    /// Returns the total number of proposals created.
+    /// Returns the total number of proposals created (monotonically increasing).
     pub fn proposal_count(env: Env) -> u32 {
         env.storage()
             .instance()
