@@ -20,7 +20,10 @@ info:
     ## Versioning
 
     All endpoints are available under `/api/v1/` (canonical) and `/api/` (legacy alias).
-    The `/api/v1/` prefix is preferred for new integrations.
+    The `/api/` unversioned routes return a `301 Moved Permanently` redirect to the
+    `/api/v1/` equivalent. New integrations should use `/api/v1/` directly.
+
+    All responses include an `API-Version: v1` header.
 
     ## Rate Limiting
 
@@ -55,6 +58,67 @@ tags:
     description: Audit log export
   - name: health
     description: Service health check
+
+paths:
+  # ---------------------------------------------------------------------------
+  # v1 canonical paths
+  # ---------------------------------------------------------------------------
+  /api/v1/auth/login:
+    post:
+      operationId: loginV1
+      tags: [auth]
+      summary: Exchange email and password for JWT tokens (v1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          headers:
+            API-Version:
+              $ref: '#/components/headers/ApiVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # Legacy unversioned paths (301 redirect to v1 equivalents)
+  # ---------------------------------------------------------------------------
+  /api/auth/login:
+    post:
+      operationId: loginLegacy
+      tags: [auth]
+      summary: "[Deprecated] Use /api/v1/auth/login"
+      deprecated: true
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '301':
+          description: Permanently redirected to /api/v1/auth/login
+          headers:
+            Location:
+              schema:
+                type: string
+            API-Version:
+              $ref: '#/components/headers/ApiVersion'
 
 paths:
   /api/auth/login:
@@ -642,6 +706,14 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Supabase JWT obtained from `POST /api/auth/login`
+
+  headers:
+    ApiVersion:
+      description: Current API version served
+      schema:
+        type: string
+        enum: [v1]
+        example: v1
 
   parameters:
     limit:
