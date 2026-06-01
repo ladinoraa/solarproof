@@ -379,7 +379,7 @@ export default function DashboardPage() {
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">{r.meter_id}</td>
-                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.kwh}</td>
+                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{r.kwh.toFixed(3)}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{new Date(r.timestamp).toLocaleString()}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.verified ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>

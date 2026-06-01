@@ -54,7 +54,7 @@ function buildSteps(data: ChainOfCustody): Step[] {
       label: 'Meter Reading',
       description: 'Physical meter recorded a signed energy reading.',
       status: mp ? 'pass' : 'fail',
-      detail: mp ? `${mp.kwh} kWh · Meter ${mp.meter_id}` : 'No meter proof found.',
+      detail: mp ? `${mp.kwh.toFixed(3)} kWh · Meter ${mp.meter_id}` : 'No meter proof found.',
     },
     {
       id: 'signature',
@@ -81,7 +81,7 @@ function buildSteps(data: ChainOfCustody): Step[] {
       description: 'Energy token (1 token = 1 kWh) minted on Stellar.',
       status: data.on_chain.mint_tx ? 'pass' : 'fail',
       detail: data.on_chain.mint_tx
-        ? `Tx ${data.on_chain.mint_tx.slice(0, 12)}… · ${data.certificate.kwh} kWh`
+        ? `Tx ${data.on_chain.mint_tx.slice(0, 12)}… · ${data.certificate.kwh.toFixed(3)} kWh`
         : 'Mint transaction not found.',
       link: data.on_chain.mint_explorer,
     },
@@ -300,7 +300,7 @@ export default function VerifyPage() {
                 mono
                 copyable
               />
-              <Row label="kWh" value={String(result.meter_proof.kwh)} />
+              <Row label="kWh" value={result.meter_proof.kwh.toFixed(3)} />
               <Row
                 label="Timestamp"
                 value={new Date(result.meter_proof.timestamp).toLocaleString()}
