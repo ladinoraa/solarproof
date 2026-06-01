@@ -38,6 +38,21 @@ jobs:
           NEXT_PUBLIC_AUDIT_REGISTRY_ID: placeholder
           NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
 
+  license-compliance:
+    name: License compliance check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx license-checker --onlyAllow "$(node -e "const c=require('./.license-checker.json');console.log(c.allowedLicenses.join(';'))")" --excludePrivatePackages
+
   contracts:
     name: Contracts (fmt + clippy + test)
     runs-on: ubuntu-latest
