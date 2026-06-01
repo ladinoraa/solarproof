@@ -13,9 +13,18 @@ export interface Database {
         Row: {
           id: string; cooperative_id: string; serial_number: string
           name: string; pubkey_hex: string; active: boolean; created_at: string
+          meter_group: string | null; tags: string[]
         }
-        Insert: { cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean }
-        Update: Partial<{ cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean }>
+        Insert: { 
+          cooperative_id: string; serial_number: string; name: string; 
+          pubkey_hex: string; active: boolean; meter_group?: string | null; 
+          tags?: string[] 
+        }
+        Update: Partial<{ 
+          cooperative_id: string; serial_number: string; name: string; 
+          pubkey_hex: string; active: boolean; meter_group: string | null; 
+          tags: string[] 
+        }>
         Relationships: []
       }
       readings: {
