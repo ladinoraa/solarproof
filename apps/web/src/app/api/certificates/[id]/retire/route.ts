@@ -82,6 +82,12 @@ export async function POST(
     retire_tx_hash: retireTxHash,
   })
 
+  void fireWebhook(updated.cooperative_id, 'certificate.retired', {
+    certificate_id: updated.id,
+    retired_by: updated.retired_by,
+    retire_tx_hash: retireTxHash,
+  })
+
   // Level 3 integration: Bridge retirement to I-REC registry
   void triggerIRecRetirement({
     beneficiary: wallet_address,

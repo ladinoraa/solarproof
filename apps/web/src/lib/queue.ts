@@ -138,6 +138,14 @@ async function runAnchorAndMint(
       retired: false,
     })
     await invalidateCert(readingId, readingHashHex, mintTxHash)
+
+    const { fireWebhook } = await import('@/lib/webhooks')
+    void fireWebhook(cooperativeId, 'certificate.minted', {
+      reading_id: readingId,
+      anchor_tx_hash: anchorTxHash,
+      mint_tx_hash: mintTxHash,
+      kwh,
+    })
   }
 
   return { anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }
