@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Award, Leaf, Search, X } from 'lucide-react'
+import { Award, Leaf, Search, X, FileDown } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
 import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
@@ -309,6 +309,15 @@ export default function CertificatesPage() {
                             >
                               Retire
                             </button>
+                            <a
+                              href={`/api/certificates/${cert.id}/irec-export${address ? `?holder=${encodeURIComponent(address)}` : ''}`}
+                              download={`irec-${cert.id}.xml`}
+                              aria-label={`Export certificate ${cert.id.slice(0, 8)} as I-REC XML`}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                            >
+                              <FileDown className="h-3 w-3" aria-hidden="true" />
+                              I-REC
+                            </a>
                           </div>
                         )}
                       </td>
