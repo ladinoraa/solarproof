@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
+import { writeAuditLog } from '@/lib/audit'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -22,6 +23,7 @@ const ReadingSchema = z.object({
  * Body: { meter_id, kwh, timestamp, signature_hex }
  */
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown'
   const body = await req.json().catch(() => null)
   const parsed = ReadingSchema.safeParse(body)
   if (!parsed.success) {
@@ -77,6 +79,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
+  await writeAuditLog({
+    actor: meter_id,
+    action: 'reading.submitted',
+    resource: 'readings',
+    resource_id: reading.id,
+    ip,
+    metadata: { kwh, timestamp },
+  })
+
   // Anchor on-chain
   let anchorTxHash: string
   try {
@@ -89,6 +100,14 @@ export async function POST(req: NextRequest) {
       timestampUnix: BigInt(timestamp),
     })
     await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
+    await writeAuditLog({
+      actor: meter_id,
+      action: 'reading.anchored',
+      resource: 'readings',
+      resource_id: reading.id,
+      ip,
+      metadata: { anchor_tx_hash: anchorTxHash },
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Anchor failed'
     return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
@@ -111,6 +130,13 @@ export async function POST(req: NextRequest) {
       kwh,
       issued_at: new Date().toISOString(),
       retired: false,
+    })
+    await writeAuditLog({
+      actor: meter_id,
+      action: 'certificate.minted',
+      resource: 'certificates',
+      ip,
+      metadata: { kwh, mint_tx_hash: mintTxHash, anchor_tx_hash: anchorTxHash },
     })
 
     return NextResponse.json({ reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }, { status: 201 })
