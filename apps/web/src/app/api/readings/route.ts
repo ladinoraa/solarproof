@@ -11,6 +11,7 @@ import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 import { requireAuth, isAuthError } from '@/lib/auth'
 import { diagnoseMintFailure } from '@/lib/tracer-sim'
+import { sendMintedEmail, sendMintFailedEmail } from '@/lib/email'
 
 const MAX_PAGE_SIZE = 100
 const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -281,6 +282,11 @@ export async function POST(req: NextRequest) {
     log.info('readings.post.minted', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
     void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
 
+    const notifyEmail = process.env.NOTIFICATION_EMAIL
+    if (notifyEmail) {
+      void sendMintedEmail(notifyEmail, { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh, cooperative_id: meter.cooperative_id })
+    }
+
     const responseBody = { reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }
     if (idempotencyKey) {
       await storeIdempotentResponse(idempotencyKey, { body: responseBody, status: 201 })
@@ -290,6 +296,10 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : 'Mint failed'
     log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
     const diagnosis = await diagnoseMintFailure(reading.id, meter.cooperative_id, message)
+    const notifyEmail = process.env.NOTIFICATION_EMAIL
+    if (notifyEmail) {
+      void sendMintFailedEmail(notifyEmail, { reading_id: reading.id, error: message, diagnosis })
+    }
     return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash, diagnosis }, { status: 500 })
   }
 }
