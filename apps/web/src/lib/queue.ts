@@ -46,7 +46,7 @@ export async function enqueue(type: JobType, payload: Record<string, unknown>): 
  * Process a single job by ID, retrying up to `MAX_ATTEMPTS` times on failure.
  *
  * Retries use exponential back-off (2 s, 4 s, 8 s). After all attempts are
- * exhausted the job is marked `'failed'` and no further retries occur.
+ * exhausted the job is marked `'failed'` and moved to the dead-letter queue.
  *
  * @param jobId - UUID of the job record to process.
  */
