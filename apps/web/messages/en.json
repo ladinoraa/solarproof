@@ -1,0 +1,77 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "meters": "Meters",
+    "certificates": "Certificates",
+    "governance": "Governance",
+    "verify": "Verify",
+    "admin": "Admin",
+    "connectWallet": "Connect wallet",
+    "disconnectWallet": "Disconnect wallet",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu",
+    "switchLight": "Switch to light mode",
+    "switchDark": "Switch to dark mode"
+  },
+  "verify": {
+    "title": "Certificate Verifier",
+    "subtitle": "No login required. Enter a certificate ID, reading hash, or transaction hash.",
+    "placeholder": "Certificate ID, reading hash, or tx hash…",
+    "verify": "Verify",
+    "verifying": "Verifying…",
+    "share": "Share",
+    "copied": "Copied!",
+    "fullChain": "Full chain of custody confirmed",
+    "partialChain": "Partial verification — see steps below",
+    "steps": {
+      "meter": "Meter Reading",
+      "meterDesc": "Physical meter recorded a signed energy reading.",
+      "signature": "Ed25519 Signature",
+      "signatureDesc": "Device signature verified against the reading hash.",
+      "anchor": "On-chain Anchor",
+      "anchorDesc": "Reading hash anchored to Stellar via audit_registry contract.",
+      "certificate": "Certificate Minted",
+      "certificateDesc": "Energy token (1 token = 1 kWh) minted on Stellar.",
+      "retirement": "Retirement",
+      "retirementDesc": "Certificate retired to prevent double-counting."
+    },
+    "cert": {
+      "heading": "Certificate",
+      "id": "ID",
+      "energy": "Energy",
+      "issued": "Issued",
+      "status": "Status",
+      "active": "Active",
+      "retired": "Retired"
+    }
+  },
+  "governance": {
+    "title": "Governance",
+    "subtitle": "Community proposals for the SolarProof cooperative.",
+    "newProposal": "New Proposal",
+    "active": "Active",
+    "closed": "Closed",
+    "connectToVote": "Connect your wallet to vote.",
+    "youVoted": "You voted {choice}.",
+    "voteFor": "For",
+    "voteAgainst": "Against",
+    "voteAbstain": "Abstain",
+    "form": {
+      "heading": "New Proposal",
+      "title": "Title",
+      "titlePlaceholder": "Short, descriptive title",
+      "description": "Description",
+      "descriptionPlaceholder": "Explain the motivation and expected impact…",
+      "days": "Voting period (days)",
+      "submit": "Submit Proposal",
+      "submitConnect": "Connect Wallet & Submit",
+      "submitting": "Submitting…",
+      "success": "Proposal submitted successfully!",
+      "errors": {
+        "titleRequired": "Title is required.",
+        "descriptionRequired": "Description is required.",
+        "daysInvalid": "Enter a number between 1 and 30."
+      }
+    }
+  }
+}
