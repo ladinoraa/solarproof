@@ -88,6 +88,21 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['webhook_logs']['Insert']>
       }
     }
+      audit_logs: {
+        Row: {
+          id: string
+          timestamp: string
+          actor: string
+          action: string
+          resource: string
+          resource_id: string | null
+          ip: string | null
+          metadata: Json | null
+        }
+        Insert: Omit<Database['public']['Tables']['audit_logs']['Row'], 'id' | 'timestamp'>
+        Update: never
+      }
+    }
     Views: Record<string, never>
     Functions: Record<string, never>
     Enums: Record<string, never>
