@@ -4,14 +4,14 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
-import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { invalidateCert, checkRateLimit } from '@/lib/cache'
 import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
 import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 import { requireAuth, isAuthError } from '@/lib/auth'
 import { diagnoseMintFailure } from '@/lib/tracer-sim'
-import { sendMintedEmail, sendMintFailedEmail } from '@/lib/email'
+import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
+import { enqueue } from '@/lib/queue'
 
 const MAX_PAGE_SIZE = 100
 const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -101,7 +101,7 @@ const ReadingSchema = z.object({
  * Duplicate requests with the same key return the cached response without
  * re-processing. Keys expire after IDEMPOTENCY_TTL_SECONDS (default 24 h).
  *
- * Returns 201 Created with { reading_id, anchor_tx_hash, mint_tx_hash }.
+ * Returns 202 Accepted with { reading_id, job_id }.
  */
 export async function POST(req: NextRequest) {
   const correlationId = req.headers.get('x-correlation-id') ?? undefined
@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid meter signature' }, { status: 401 })
   }
 
-  // Persist reading (anchored/minted will be updated by the background job)
+  // Persist reading; Stellar anchor + mint will be processed asynchronously.
   const { data: reading, error: readingErr } = await db
     .from('readings')
     .insert({
@@ -240,66 +240,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save reading' }, { status: 500 })
   }
 
-  // Anchor on-chain (hash only — full payload already in Supabase)
-  let anchorTxHash: string
-  try {
-    anchorTxHash = await anchorReading({ readingHash, nonce })
-    await db.from('readings').update({ anchored: true, anchor_tx_hash: anchorTxHash }).eq('id', reading.id)
-    log.info('readings.post.anchored', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
-    void fireWebhook(meter.cooperative_id, 'anchor', { reading_id: reading.id, anchor_tx_hash: anchorTxHash })
-  } catch (err) {
-    if (isAlreadyAnchoredError(err)) {
-      log.warn('readings.post.already_anchored', { reading_id: reading.id })
-      return NextResponse.json({ error: 'Reading already anchored', reading_id: reading.id }, { status: 409 })
-    }
-    const message = extractErrorMessage(err)
-    log.error('readings.post.anchor_failed', { reading_id: reading.id, error: message })
-    return NextResponse.json({ error: message, reading_id: reading.id }, { status: 500 })
+  const cooperative = meter.cooperatives as { admin_address: string } | null
+  const recipient = cooperative?.admin_address
+  if (!recipient) {
+    log.error('readings.post.missing_recipient', { reading_id: reading.id, cooperative_id: meter.cooperative_id })
+    return NextResponse.json({ error: 'No cooperative admin address' }, { status: 500 })
   }
 
-  // Mint certificates
-  try {
-    const cooperative = meter.cooperatives as { admin_address: string } | null
-    const recipient = cooperative?.admin_address
-    if (!recipient) throw new Error('No cooperative admin address')
+  const jobId = await enqueue('anchor_and_mint', {
+    readingId: reading.id,
+    readingHashHex: readingHash.toString('hex'),
+    recipientAddress: recipient,
+    kwh,
+    correlationId,
+  })
 
-    const mintTxHash = await mintCertificates(recipient, kwh)
-    await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', reading.id)
-    await db.from('certificates').insert({
-      cooperative_id: meter.cooperative_id,
-      reading_id: reading.id,
-      reading_hash: readingHash.toString('hex'),
-      anchor_tx_hash: anchorTxHash,
-      mint_tx_hash: mintTxHash,
-      kwh,
-      issued_at: new Date().toISOString(),
-      retired: false,
-    })
+  log.info('readings.post.enqueued', { reading_id: reading.id, job_id: jobId })
 
-    // Invalidate any stale cache entries for this certificate
-    await invalidateCert(reading.id, readingHash.toString('hex'), mintTxHash)
-
-    log.info('readings.post.minted', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
-    void fireWebhook(meter.cooperative_id, 'mint', { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh })
-
-    const notifyEmail = process.env.NOTIFICATION_EMAIL
-    if (notifyEmail) {
-      void sendMintedEmail(notifyEmail, { reading_id: reading.id, mint_tx_hash: mintTxHash, kwh, cooperative_id: meter.cooperative_id })
-    }
-
-    const responseBody = { reading_id: reading.id, anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }
-    if (idempotencyKey) {
-      await storeIdempotentResponse(idempotencyKey, { body: responseBody, status: 201 })
-    }
-    return NextResponse.json(responseBody, { status: 201 })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Mint failed'
-    log.error('readings.post.mint_failed', { reading_id: reading.id, error: message })
-    const diagnosis = await diagnoseMintFailure(reading.id, meter.cooperative_id, message)
-    const notifyEmail = process.env.NOTIFICATION_EMAIL
-    if (notifyEmail) {
-      void sendMintFailedEmail(notifyEmail, { reading_id: reading.id, error: message, diagnosis })
-    }
-    return NextResponse.json({ error: message, reading_id: reading.id, anchor_tx_hash: anchorTxHash, diagnosis }, { status: 500 })
+  const responseBody = { reading_id: reading.id, job_id: jobId }
+  if (idempotencyKey) {
+    await storeIdempotentResponse(idempotencyKey, { body: responseBody, status: 202 })
   }
+
+  return NextResponse.json(responseBody, { status: 202 })
 }
