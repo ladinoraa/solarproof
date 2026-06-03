@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { retireCertificate } from '@/lib/stellar'
+import { fireWebhook } from '@/lib/webhooks'
+import { triggerIRecRetirement } from '@/lib/irec-bridge'
+import { sendRetiredEmail } from '@/lib/email'
 
 const RetireSchema = z.object({ wallet_address: z.string().min(1) })
 const ParamsSchema = z.object({ id: z.string().uuid() })
@@ -71,12 +74,29 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to update certificate status' }, { status: 500 })
   }
 
-  // Emit retirement event for audit log
-  await db.from('retirement_events').insert({
-    certificate_id: id,
-    beneficiary: wallet_address,
+  void fireWebhook(updated.cooperative_id, 'retire', {
+    certificate_id: updated.id,
+    retired_by: updated.retired_by,
     retire_tx_hash: retireTxHash,
-    kwh: cert.kwh,
+  })
+
+  const notifyEmail = process.env.NOTIFICATION_EMAIL
+  if (notifyEmail) {
+    void sendRetiredEmail(notifyEmail, {
+      certificate_id: updated.id,
+      retired_by: updated.retired_by ?? wallet_address,
+      retire_tx_hash: retireTxHash,
+      kwh: cert.kwh,
+    })
+  }
+
+  // Level 3 integration: Bridge retirement to I-REC registry
+  void triggerIRecRetirement({
+    beneficiary: wallet_address,
+    volumeWh: cert.kwh * 1000,
+    vintageStart: new Date(cert.issued_at).toISOString(),
+    vintageEnd: new Date(cert.issued_at).toISOString(),
+    notes: `Retired via SolarProof: ${cert.id}`,
   })
 
   return NextResponse.json({
