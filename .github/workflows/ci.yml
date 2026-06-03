@@ -104,6 +104,21 @@ jobs:
       - name: Validate openapi.yaml
         run: npx --yes @redocly/cli@1 lint openapi.yaml --format=github-actions
 
+  license-compliance:
+    name: License compliance check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx license-checker --onlyAllow "$(node -e "const c=require('./.license-checker.json');console.log(c.allowedLicenses.join(';'))")" --excludePrivatePackages
+
   contracts:
     name: Contracts (fmt + clippy + test)
     runs-on: ubuntu-latest
