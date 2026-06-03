@@ -3,6 +3,7 @@
 > End-to-end cryptographic proof of renewable energy — from physical meter to on-chain certificate.
 
 [![CI](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnabelJoe/solarproof/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AnnabelJoe/solarproof/branch/main/graph/badge.svg)](https://codecov.io/gh/AnnabelJoe/solarproof)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-blue?logo=stellar)](https://stellar.org)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen)](#)
@@ -177,14 +178,16 @@ solarproof/
 | Level | What | Status |
 |---|---|---|
 | 1 | Signed meter readings + on-chain anchoring | ✅ Current |
-| 2 | Hardware HSM integration (YubiKey / TPM) | 🔜 Next |
-| 3 | I-REC / Energy Web / TIGR bridge | 🔮 Future |
+| 2 | Hardware HSM integration (YubiKey / TPM) | ✅ Completed |
+| 3 | I-REC / Energy Web / TIGR bridge | 🔜 Next |
 
 ---
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `develop`.
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
 
 ---
 

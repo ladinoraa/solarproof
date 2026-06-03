@@ -1,0 +1,50 @@
+name: Blue-Green Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy → health check → promote
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel preview (green)
+        id: deploy
+        run: |
+          PREVIEW_URL=$(npx vercel deploy --token ${{ secrets.VERCEL_TOKEN }} \
+            --scope ${{ secrets.VERCEL_ORG_ID }} \
+            --yes 2>&1 | tail -1)
+          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Health checks against green
+        run: |
+          URL="${{ steps.deploy.outputs.preview_url }}/api/health"
+          for i in $(seq 1 5); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$URL")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check $i passed"
+            else
+              echo "Health check $i failed (HTTP $STATUS)"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Promote green to production
+        run: |
+          npx vercel promote ${{ steps.deploy.outputs.preview_url }} \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --scope ${{ secrets.VERCEL_ORG_ID }}
+
+      - name: Verify production health
+        run: |
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            "https://solarproof.vercel.app/api/health")
+          [ "$STATUS" = "200" ] || (echo "Production health check failed" && exit 1)

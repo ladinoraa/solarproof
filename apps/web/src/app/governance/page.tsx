@@ -1,0 +1,459 @@
+'use client'
+
+import { useState } from 'react'
+import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp } from 'lucide-react'
+import { useWallet } from '@/hooks/useWallet'
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+type VoteChoice = 'for' | 'against' | 'abstain'
+type ProposalStatus = 'active' | 'passed' | 'rejected' | 'pending'
+
+interface Tally { for: number; against: number; abstain: number }
+
+interface Proposal {
+  id: string
+  title: string
+  description: string
+  status: ProposalStatus
+  tally: Tally
+  endsAt: Date
+  userVote?: VoteChoice
+}
+
+// ── Seed data (replaced by real contract calls in production) ──────────────────
+
+const SEED: Proposal[] = [
+  {
+    id: 'prop-001',
+    title: 'Increase minimum meter reading interval to 15 minutes',
+    description: 'Reduce on-chain anchoring costs by batching readings every 15 minutes instead of every 5.',
+    status: 'active',
+    tally: { for: 142, against: 38, abstain: 12 },
+    endsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+  },
+  {
+    id: 'prop-002',
+    title: 'Add support for wind energy certificates',
+    description: 'Extend the energy_token contract to support wind generation alongside solar.',
+    status: 'active',
+    tally: { for: 89, against: 61, abstain: 5 },
+    endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  },
+  {
+    id: 'prop-003',
+    title: 'Integrate I-REC bridge (v1)',
+    description: 'Build a bridge to the I-REC registry so SolarProof certificates can be cross-listed.',
+    status: 'passed',
+    tally: { for: 210, against: 30, abstain: 8 },
+    endsAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+  },
+]
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function totalVotes(t: Tally) { return t.for + t.against + t.abstain }
+function pct(n: number, total: number) { return total === 0 ? 0 : Math.round((n / total) * 100) }
+
+function countdown(endsAt: Date): string {
+  const diff = endsAt.getTime() - Date.now()
+  if (diff <= 0) return 'Ended'
+  const d = Math.floor(diff / 86_400_000)
+  const h = Math.floor((diff % 86_400_000) / 3_600_000)
+  return d > 0 ? `${d}d ${h}h remaining` : `${h}h remaining`
+}
+
+const STATUS_BADGE: Record<ProposalStatus, string> = {
+  active: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  passed: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+  rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function TallyBar({ tally }: { tally: Tally }) {
+  const total = totalVotes(tally)
+  const forPct = pct(tally.for, total)
+  const againstPct = pct(tally.against, total)
+  const abstainPct = pct(tally.abstain, total)
+  return (
+    <div className="space-y-1.5">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800" aria-label={`Tally: ${forPct}% for, ${againstPct}% against, ${abstainPct}% abstain`} role="img">
+        <div className="bg-green-500" style={{ width: `${forPct}%` }} />
+        <div className="bg-red-500" style={{ width: `${againstPct}%` }} />
+        <div className="bg-gray-400 dark:bg-gray-600" style={{ width: `${abstainPct}%` }} />
+      </div>
+      <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
+        <span><span className="font-medium text-green-600 dark:text-green-400">{forPct}%</span> For ({tally.for})</span>
+        <span><span className="font-medium text-red-600 dark:text-red-400">{againstPct}%</span> Against ({tally.against})</span>
+        <span><span className="font-medium text-gray-500">{abstainPct}%</span> Abstain ({tally.abstain})</span>
+      </div>
+    </div>
+  )
+}
+
+function VoteButtons({
+  proposalId,
+  userVote,
+  disabled,
+  onVote,
+}: {
+  proposalId: string
+  userVote?: VoteChoice
+  disabled: boolean
+  onVote: (id: string, choice: VoteChoice) => void
+}) {
+  const btn = (choice: VoteChoice, label: string, Icon: React.ElementType, color: string) => {
+    const active = userVote === choice
+    return (
+      <button
+        key={choice}
+        onClick={() => onVote(proposalId, choice)}
+        disabled={disabled || !!userVote}
+        aria-pressed={active}
+        aria-label={`Vote ${label}`}
+        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? `${color} border-transparent`
+            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+        }`}
+      >
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        {label}
+      </button>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {btn('for', 'For', CheckCircle, 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300')}
+      {btn('against', 'Against', XCircle, 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300')}
+      {btn('abstain', 'Abstain', Minus, 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400')}
+    </div>
+  )
+}
+
+function ProposalCard({
+  proposal,
+  onVote,
+  walletConnected,
+}: {
+  proposal: Proposal
+  onVote: (id: string, choice: VoteChoice) => void
+  walletConnected: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isActive = proposal.status === 'active'
+
+  return (
+    <article
+      aria-labelledby={`prop-title-${proposal.id}`}
+      className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_BADGE[proposal.status]}`}>
+              {proposal.status}
+            </span>
+            {isActive && (
+              <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                {countdown(proposal.endsAt)}
+              </span>
+            )}
+          </div>
+          <h2 id={`prop-title-${proposal.id}`} className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {proposal.title}
+          </h2>
+        </div>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={`prop-body-${proposal.id}`}
+          aria-label={expanded ? 'Collapse proposal' : 'Expand proposal'}
+          className="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div id={`prop-body-${proposal.id}`} className="mt-3">
+          <p className="text-sm text-gray-600 dark:text-gray-400">{proposal.description}</p>
+        </div>
+      )}
+
+      <div className="mt-4 space-y-3">
+        <TallyBar tally={proposal.tally} />
+        {isActive && (
+          <div>
+            {!walletConnected && (
+              <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">Connect your wallet to vote.</p>
+            )}
+            <VoteButtons
+              proposalId={proposal.id}
+              userVote={proposal.userVote}
+              disabled={!walletConnected}
+              onVote={onVote}
+            />
+            {proposal.userVote && (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                You voted <span className="font-medium capitalize">{proposal.userVote}</span>.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  )
+}
+
+// ── Create Proposal Form ───────────────────────────────────────────────────────
+
+interface FormState { title: string; description: string; days: string; action: string }
+const EMPTY: FormState = { title: '', description: '', days: '7', action: '' }
+
+function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void }) {
+  const { connected, connect } = useWallet()
+  const [form, setForm] = useState<FormState>(EMPTY)
+  const [errors, setErrors] = useState<Partial<FormState>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState(false)
+
+  function validate(): boolean {
+    const e: Partial<FormState> = {}
+    if (!form.title.trim()) e.title = 'Title is required.'
+    if (!form.description.trim()) e.description = 'Description is required.'
+    const d = Number(form.days)
+    if (!form.days || isNaN(d) || d < 1 || d > 30) e.days = 'Enter a number between 1 and 30.'
+    if (!form.action.trim()) e.action = 'Proposed action is required.'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!validate()) return
+    if (!connected) {
+      try { await connect() } catch { return }
+    }
+    setSubmitting(true)
+    // Simulate wallet signature + contract call
+    await new Promise((r) => setTimeout(r, 800))
+    const newProposal: Proposal = {
+      id: `prop-${Date.now()}`,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      status: 'active',
+      tally: { for: 0, against: 0, abstain: 0 },
+      endsAt: new Date(Date.now() + Number(form.days) * 86_400_000),
+    }
+    onCreated(newProposal)
+    setForm(EMPTY)
+    setErrors({})
+    setSubmitting(false)
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 3000)
+  }
+
+  return (
+    <section aria-labelledby="create-proposal-heading" className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+      <h2 id="create-proposal-heading" className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        New Proposal
+      </h2>
+      {success && (
+        <div role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300">
+          <CheckCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Proposal submitted successfully!
+        </div>
+      )}
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <Field
+          id="prop-title"
+          label="Title"
+          error={errors.title}
+        >
+          <input
+            id="prop-title"
+            type="text"
+            value={form.title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            maxLength={120}
+            aria-required="true"
+            aria-describedby={errors.title ? 'prop-title-err' : undefined}
+            aria-invalid={!!errors.title}
+            placeholder="Short, descriptive title"
+            className="input-base"
+          />
+        </Field>
+
+        <Field id="prop-desc" label="Description" error={errors.description}>
+          <textarea
+            id="prop-desc"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            rows={3}
+            maxLength={1000}
+            aria-required="true"
+            aria-describedby={errors.description ? 'prop-desc-err' : undefined}
+            aria-invalid={!!errors.description}
+            placeholder="Explain the motivation and expected impact…"
+            className="input-base resize-none"
+          />
+        </Field>
+
+        <Field id="prop-action" label="Proposed action" error={errors.action}>
+          <input
+            id="prop-action"
+            type="text"
+            value={form.action}
+            onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
+            maxLength={200}
+            aria-required="true"
+            aria-describedby={errors.action ? 'prop-action-err' : undefined}
+            aria-invalid={!!errors.action}
+            placeholder="e.g. update_param, call_contract, transfer_funds"
+            className="input-base"
+          />
+        </Field>
+
+        <Field id="prop-days" label="Voting deadline (days)" error={errors.days}>
+          <input
+            id="prop-days"
+            type="number"
+            min={1}
+            max={30}
+            value={form.days}
+            onChange={(e) => setForm((f) => ({ ...f, days: e.target.value }))}
+            aria-required="true"
+            aria-describedby={errors.days ? 'prop-days-err' : undefined}
+            aria-invalid={!!errors.days}
+            className="input-base w-28"
+          />
+        </Field>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          aria-busy={submitting}
+          className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {submitting ? 'Submitting…' : connected ? 'Submit Proposal' : 'Connect Wallet & Submit'}
+        </button>
+      </form>
+    </section>
+  )
+}
+
+function Field({
+  id,
+  label,
+  error,
+  children,
+}: {
+  id: string
+  label: string
+  error?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        {label}
+      </label>
+      <style>{`.input-base{width:100%;border-radius:.5rem;border:1px solid;padding:.375rem .75rem;font-size:.875rem;outline:none;border-color:${error ? '#fca5a5' : '#d1d5db'};background:white;color:#111827}.input-base:focus{box-shadow:0 0 0 2px #facc15}`}</style>
+      {children}
+      {error && (
+        <p id={`${id}-err`} role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+export default function GovernancePage() {
+  const { connected } = useWallet()
+  const [proposals, setProposals] = useState<Proposal[]>(SEED)
+  const [showForm, setShowForm] = useState(false)
+
+  function handleVote(id: string, choice: VoteChoice) {
+    setProposals((prev) =>
+      prev.map((p) => {
+        if (p.id !== id) return p
+        const tally = { ...p.tally }
+        tally[choice] += 1
+        return { ...p, tally, userVote: choice }
+      })
+    )
+  }
+
+  function handleCreated(proposal: Proposal) {
+    setProposals((prev) => [proposal, ...prev])
+    setShowForm(false)
+  }
+
+  const active = proposals.filter((p) => p.status === 'active')
+  const closed = proposals.filter((p) => p.status !== 'active')
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-8 sm:py-10">
+      <header className="mb-8 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Vote className="h-7 w-7 shrink-0 text-yellow-500" aria-hidden="true" />
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">Governance</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Community proposals for the SolarProof cooperative.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          aria-expanded={showForm}
+          aria-controls="create-proposal-section"
+          className="flex items-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          New Proposal
+        </button>
+      </header>
+
+      {showForm && (
+        <div id="create-proposal-section" className="mb-8">
+          <CreateProposalForm onCreated={handleCreated} />
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <section aria-labelledby="active-heading" className="mb-8">
+          <h2 id="active-heading" className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            Active ({active.length})
+          </h2>
+          <div className="space-y-4">
+            {active.map((p) => (
+              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {closed.length > 0 && (
+        <section aria-labelledby="closed-heading">
+          <h2 id="closed-heading" className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            Closed ({closed.length})
+          </h2>
+          <div className="space-y-4">
+            {closed.map((p) => (
+              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
