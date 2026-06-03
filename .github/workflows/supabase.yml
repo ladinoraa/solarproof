@@ -24,8 +24,21 @@ jobs:
       - name: Start Supabase local stack
         run: supabase start
 
-      - name: Reset DB (applies all migrations + seed)
+      - name: Apply all migrations (forward)
         run: supabase db reset
+
+      - name: Verify rollback scripts exist for every migration
+        run: |
+          missing=0
+          for f in supabase/migrations/*.sql; do
+            base=$(basename "$f" .sql)
+            down="supabase/migrations/rollbacks/${base}.down.sql"
+            if [ ! -f "$down" ]; then
+              echo "Missing rollback: $down"
+              missing=1
+            fi
+          done
+          exit $missing
 
       - name: Stop Supabase local stack
         if: always()

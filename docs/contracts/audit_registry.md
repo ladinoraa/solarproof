@@ -62,7 +62,7 @@ Verifies the Ed25519 signature and stores the anchor permanently.
 | `timestamp` | `u64` | Unix timestamp of the reading |
 
 Returns: nothing  
-Emits event: `("anchor", reading_hash)`
+Emits event: `("anchor", (reading_hash, ledger_sequence, ledger_timestamp))`
 
 **Example:**
 ```bash
@@ -114,3 +114,11 @@ Returns the admin address.
 | `"reading already anchored"` | `anchor` called with a `reading_hash` that already exists |
 | `"kwh must be positive"` | `kwh_stroops ≤ 0` |
 | Ed25519 verification failure | Invalid signature — Soroban host panics with a crypto error |
+
+---
+
+## Events
+
+| Topic | Data | Emitted by |
+|---|---|---|
+| `"anchor"` | `(reading_hash: BytesN<32>, ledger_sequence: u32, ledger_timestamp: u64)` | `anchor` |

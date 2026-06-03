@@ -1,0 +1,545 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Copy components snapshots > CopyButton renders correctly 1`] = `
+<button
+  aria-label="Copy test-value"
+  class="inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 "
+  title="Copy to clipboard"
+>
+  <div
+    data-testid="copy-icon"
+  />
+  <span
+    class="sr-only"
+  >
+    Copy
+  </span>
+</button>
+`;
+
+exports[`Copy components snapshots > CopyableText renders correctly (mono) 1`] = `
+<span
+  class="inline-flex items-center gap-1 "
+>
+  <span
+    class="font-mono text-xs"
+  >
+    0x1234567890
+  </span>
+  <button
+    aria-label="Copy 0x1234567890"
+    class="inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 "
+    title="Copy to clipboard"
+  >
+    <div
+      data-testid="copy-icon"
+    />
+    <span
+      class="sr-only"
+    >
+      Copy
+    </span>
+  </button>
+</span>
+`;
+
+exports[`Copy components snapshots > CopyableText renders correctly (non-mono) 1`] = `
+<span
+  class="inline-flex items-center gap-1 "
+>
+  <span
+    class=""
+  >
+    test
+  </span>
+  <button
+    aria-label="Copy test"
+    class="inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 "
+    title="Copy to clipboard"
+  >
+    <div
+      data-testid="copy-icon"
+    />
+    <span
+      class="sr-only"
+    >
+      Copy
+    </span>
+  </button>
+</span>
+`;
+
+exports[`LanguageSwitcher snapshots > LanguageSwitcher renders correctly 1`] = `
+<div
+  aria-label="Language selector"
+  role="group"
+>
+  <select
+    aria-label="Select language"
+    class="cursor-pointer appearance-none rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+  >
+    <option
+      aria-label="English"
+      value="en"
+    >
+      EN
+    </option>
+    <option
+      aria-label="Español"
+      value="es"
+    >
+      ES
+    </option>
+    <option
+      aria-label="Français"
+      value="fr"
+    >
+      FR
+    </option>
+    <option
+      aria-label="Deutsch"
+      value="de"
+    >
+      DE
+    </option>
+  </select>
+</div>
+`;
+
+exports[`MeterReadingRow snapshots > pending (unverified) reading row renders correctly 1`] = `
+<table>
+  <tbody>
+    <tr
+      class="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40"
+    >
+      <td
+        class="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300"
+      >
+        meter-abc-123
+      </td>
+      <td
+        class="px-4 py-3 text-gray-900 dark:text-gray-100"
+      >
+        12.500
+      </td>
+      <td
+        class="px-4 py-3 text-gray-600 dark:text-gray-400"
+      >
+        1/15/2024, 10:30:00 AM
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <span
+          class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+        >
+          Pending
+        </span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`MeterReadingRow snapshots > verified reading row renders correctly 1`] = `
+<table>
+  <tbody>
+    <tr
+      class="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40"
+    >
+      <td
+        class="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300"
+      >
+        meter-abc-123
+      </td>
+      <td
+        class="px-4 py-3 text-gray-900 dark:text-gray-100"
+      >
+        12.500
+      </td>
+      <td
+        class="px-4 py-3 text-gray-600 dark:text-gray-400"
+      >
+        1/15/2024, 10:30:00 AM
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <span
+          class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+        >
+          Verified
+        </span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`Navbar snapshots > Navbar renders correctly 1`] = `
+<nav
+  aria-label="Main navigation"
+  class="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3"
+  >
+    <a
+      aria-label="SolarProof home"
+      class="flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100"
+      href="/"
+    >
+      <div
+        data-testid="sun-icon"
+      />
+      SolarProof
+    </a>
+    <div
+      class="hidden items-center gap-6 md:flex"
+      role="list"
+    >
+      <a
+        aria-current="page"
+        class="text-sm transition-colors font-medium text-gray-900 dark:text-gray-100"
+        href="/"
+        role="listitem"
+      >
+        nav.dashboard
+      </a>
+      <a
+        class="text-sm transition-colors text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+        href="/meters"
+        role="listitem"
+      >
+        nav.meters
+      </a>
+      <a
+        class="text-sm transition-colors text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+        href="/certificates"
+        role="listitem"
+      >
+        nav.certificates
+      </a>
+      <a
+        class="text-sm transition-colors text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+        href="/governance"
+        role="listitem"
+      >
+        nav.governance
+      </a>
+      <a
+        class="text-sm transition-colors text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+        href="/verify"
+        role="listitem"
+      >
+        nav.verify
+      </a>
+    </div>
+    <div
+      class="flex items-center gap-2"
+    >
+      <a
+        aria-label="Stellar Testnet — view network info"
+        class="hidden items-center rounded-full px-2 py-0.5 text-xs font-semibold md:flex bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+        href="https://stellar.expert/explorer/testnet"
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        Testnet
+      </a>
+      <div
+        class="hidden items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 dark:border-gray-700 md:flex"
+      >
+        <div
+          data-testid="wallet-icon"
+        />
+        <span
+          class="text-xs font-medium text-gray-700 dark:text-gray-300"
+        >
+          GABC
+          …
+          .XYZ
+        </span>
+        <button
+          aria-label="Copy wallet address GABC...XYZ"
+          class="inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 "
+          title="Copy to clipboard"
+        >
+          <div
+            data-testid="copy-icon"
+          />
+          <span
+            class="sr-only"
+          >
+            Copy
+          </span>
+        </button>
+        <button
+          aria-label="nav.disconnectWallet"
+          class="ml-0.5 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+          title="Disconnect"
+        >
+          <div
+            data-testid="logout-icon"
+          />
+        </button>
+      </div>
+      <button
+        aria-label="nav.switchDark"
+        class="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+      >
+        <div
+          data-testid="moon-icon"
+        />
+      </button>
+      <button
+        aria-controls="mobile-menu"
+        aria-expanded="false"
+        aria-label="nav.openMenu"
+        class="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 md:hidden"
+      >
+        <div
+          data-testid="menu-icon"
+        />
+      </button>
+    </div>
+  </div>
+</nav>
+`;
+
+exports[`Skeleton components snapshots > ChartSkeleton renders correctly (no title) 1`] = `
+<div
+  aria-busy="true"
+  aria-label="Loading chart"
+  class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-48 w-full"
+  />
+</div>
+`;
+
+exports[`Skeleton components snapshots > ChartSkeleton renders correctly (with title) 1`] = `
+<div
+  aria-busy="true"
+  aria-label="Loading Daily energy output chart"
+  class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 mb-4 h-5 w-40"
+  />
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-48 w-full"
+  />
+</div>
+`;
+
+exports[`Skeleton components snapshots > SectionSkeleton renders correctly (2 rows) 1`] = `
+<div
+  aria-busy="true"
+  aria-label="Loading section"
+  class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 mb-3 h-3 w-20"
+  />
+  <div
+    class="space-y-3"
+  >
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Skeleton components snapshots > SectionSkeleton renders correctly (default 4 rows) 1`] = `
+<div
+  aria-busy="true"
+  aria-label="Loading section"
+  class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 mb-3 h-3 w-20"
+  />
+  <div
+    class="space-y-3"
+  >
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+    <div
+      class="flex items-center justify-between gap-4"
+    >
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-20"
+      />
+      <div
+        aria-hidden="true"
+        class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-32"
+      />
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Skeleton components snapshots > Skeleton renders correctly 1`] = `
+<div
+  aria-hidden="true"
+  class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700"
+/>
+`;
+
+exports[`Skeleton components snapshots > Skeleton with custom className renders correctly 1`] = `
+<div
+  aria-hidden="true"
+  class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-24"
+/>
+`;
+
+exports[`Skeleton components snapshots > StatCardSkeleton renders correctly 1`] = `
+<div
+  aria-busy="true"
+  aria-label="Loading statistic"
+  class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900"
+>
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 mb-2 h-4 w-24"
+  />
+  <div
+    aria-hidden="true"
+    class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-8 w-16"
+  />
+</div>
+`;
+
+exports[`Skeleton components snapshots > TableRowSkeleton renders correctly (2 cols) 1`] = `
+<table>
+  <tbody>
+    <tr
+      aria-hidden="true"
+    >
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`Skeleton components snapshots > TableRowSkeleton renders correctly (default 4 cols) 1`] = `
+<table>
+  <tbody>
+    <tr
+      aria-hidden="true"
+    >
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+      <td
+        class="px-4 py-3"
+      >
+        <div
+          aria-hidden="true"
+          class="animate-pulse rounded-md bg-gray-200 dark:bg-gray-700 h-4 w-full"
+        />
+      </td>
+    </tr>
+  </tbody>
+</table>
+`;
