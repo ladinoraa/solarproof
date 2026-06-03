@@ -257,7 +257,7 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::QuorumBps, &bps);
     }
 
-    /// Returns the current quorum in basis points.
+    /// Returns the current quorum in basis points (default: `1000` = 10 %).
     pub fn get_quorum_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -279,7 +279,7 @@ impl CommunityGovernance {
         env.storage().instance().set(&DataKey::ThresholdBps, &bps);
     }
 
-    /// Returns the current approval threshold in basis points.
+    /// Returns the current approval threshold in basis points (default: `5100` = 51 %).
     pub fn get_threshold_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -558,6 +558,8 @@ impl CommunityGovernance {
     }
 
     /// Returns the pending upgrade proposal, if any.
+    ///
+    /// Returns `None` if no upgrade has been proposed or the last one was cancelled/executed.
     pub fn pending_upgrade(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&DataKey::PendingUpgrade)
     }
@@ -580,7 +582,7 @@ impl CommunityGovernance {
             .set(&DataKey::ExecuteTimelock, &ledgers);
     }
 
-    /// Returns the current execution timelock in ledgers.
+    /// Returns the current execution timelock in ledgers (default: `8640` ≈ 24 h).
     pub fn get_execution_timelock(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -630,7 +632,7 @@ impl CommunityGovernance {
         proposals.get(proposal_id)
     }
 
-    /// Returns the total number of proposals created.
+    /// Returns the total number of proposals created (monotonically increasing).
     pub fn proposal_count(env: Env) -> u32 {
         env.storage()
             .instance()
