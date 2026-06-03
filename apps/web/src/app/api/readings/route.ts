@@ -183,8 +183,8 @@ export async function POST(req: NextRequest) {
     .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; api_key: string; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
-    log.warn('readings.post.meter_not_found', { meter_id })
-    return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
+    log.warn('readings.post.meter_not_found_or_revoked', { meter_id })
+    return NextResponse.json({ error: 'Meter not found, inactive, or revoked' }, { status: 404 })
   }
 
   // Validate API key before Ed25519 signature check
