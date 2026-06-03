@@ -50,9 +50,10 @@ export function middleware(req: NextRequest) {
   if (unversioned) {
     const url = req.nextUrl.clone()
     url.pathname = `/api/v1/${unversioned[1]}`
-    const redirect = NextResponse.redirect(url, { status: 308 })
+    const redirect = NextResponse.redirect(url, { status: 301 })
     redirect.headers.set('Deprecation', 'true')
     redirect.headers.set('Link', `<${url.toString()}>; rel="successor-version"`)
+    redirect.headers.set('API-Version', 'v1')
     // Propagate correlation ID on the redirect response too
     const correlationId = req.headers.get('x-correlation-id') ?? randomUUID()
     redirect.headers.set('x-correlation-id', correlationId)
@@ -75,6 +76,7 @@ export function middleware(req: NextRequest) {
     },
   })
   res.headers.set('x-correlation-id', correlationId)
+  res.headers.set('API-Version', 'v1')
 
   // ── Attach CORS headers ───────────────────────────────────────────────────
   if (corsHeaders) {
