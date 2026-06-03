@@ -23,6 +23,18 @@ export function middleware(req: NextRequest) {
   const origin = req.headers.get('origin')
   const corsHeaders = getCorsHeaders(origin)
 
+  // ── HTTPS redirect ────────────────────────────────────────────────────────
+  // In production, redirect plain HTTP to HTTPS with a 301 permanent redirect.
+  // Vercel/CDN handles this at the edge, but the middleware acts as a safety net.
+  if (
+    process.env.NODE_ENV === 'production' &&
+    req.headers.get('x-forwarded-proto') === 'http'
+  ) {
+    const httpsUrl = req.nextUrl.clone()
+    httpsUrl.protocol = 'https:'
+    return NextResponse.redirect(httpsUrl, { status: 301 })
+  }
+
   // ── CORS preflight ────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') {
     if (corsHeaders) {
@@ -33,8 +45,8 @@ export function middleware(req: NextRequest) {
   }
 
   // ── API versioning redirect ───────────────────────────────────────────────
-  // Match /api/<segment> but NOT /api/v1/... or /api/docs (OpenAPI spec)
-  const unversioned = pathname.match(/^\/api\/(?!v\d+\/)(.+)$/)
+  // Match /api/<segment> but NOT /api/v1/... or /api/docs or /api/admin
+  const unversioned = pathname.match(/^\/api\/(?!v\d+\/|admin\/)(.+)$/)
   if (unversioned) {
     const url = req.nextUrl.clone()
     url.pathname = `/api/v1/${unversioned[1]}`
@@ -75,5 +87,8 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: '/api/:path*',
+  matcher: [
+    // Run on all routes for HTTPS redirect
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
 }
