@@ -247,7 +247,7 @@ export default function CertificatesPage() {
                       <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
                         {cert.meter_id ? `${cert.meter_id.slice(0, 8)}…` : '—'}
                       </td>
-                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh}</td>
+                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{cert.kwh.toFixed(3)}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                         {new Date(cert.issued_at).toLocaleDateString()}
                       </td>
