@@ -1,0 +1,12 @@
+# Architecture Decision Records
+
+This directory contains ADRs for key design decisions in SolarProof.
+
+Use [template.md](template.md) when creating a new ADR.
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [001](001-ed25519-signing.md) | Ed25519 for Meter Signing | Accepted |
+| [002](002-stellar-soroban.md) | Stellar/Soroban over EVM | Accepted |
+| [003](003-sep41-token-standard.md) | SEP-41 Token Standard for Energy Certificates | Accepted |
+| [004](004-cooperative-governance.md) | Cooperative Governance Model | Accepted |

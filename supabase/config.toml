@@ -1,0 +1,32 @@
+# Supabase local dev config — https://supabase.com/docs/guides/cli/config
+project_id = "solarproof"
+
+[api]
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+port = 54323
+
+[inbucket]
+port = 54324
+
+[storage]
+file_size_limit = "50MiB"
+
+[auth]
+site_url = "http://localhost:3000"
+# Access token expires after 15 minutes (900 s)
+jwt_expiry = 900
+# Refresh token rotation — old token is invalidated on every refresh
+refresh_token_rotation_enabled = true
+# Reuse interval (seconds): tolerate clock skew / network retries
+security_refresh_token_reuse_interval = 10
+enable_signup = true

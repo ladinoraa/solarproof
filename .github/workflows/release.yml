@@ -2,25 +2,33 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   release:
+    name: Semantic Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Generate changelog
-        id: changelog
-        uses: orhun/git-cliff-action@v3
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          config: cliff.toml
-          args: --latest --strip header
-      - uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.changelog.outputs.content }}
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Release
+        run: pnpm exec semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
