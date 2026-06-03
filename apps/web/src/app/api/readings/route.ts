@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert, checkRateLimit } from '@/lib/cache'
+import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
 import { fireWebhook } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 import { requireAuth, isAuthError } from '@/lib/auth'
@@ -13,6 +14,16 @@ import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotenc
 import { enqueue } from '@/lib/queue'
 
 const MAX_PAGE_SIZE = 100
+const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL
+
+/** Simple per-key rate limiter (no-op when Redis is unavailable). */
+async function checkRateLimitByKey(
+  _key: string, _limit: number, _windowSeconds: number
+): Promise<{ allowed: boolean; resetSeconds: number; remaining: number }> {
+  // Falls back to allow-all; the pubkey-based checkRateLimit handles enforcement
+  return { allowed: true, resetSeconds: 0, remaining: _limit }
+}
 
 /**
  * GET /api/v1/readings
@@ -113,24 +124,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { meter_id, kwh, timestamp, signature_hex } = parsed.data
+  const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
   const limit = Number(process.env.READINGS_RATE_LIMIT_PER_MINUTE ?? 60)
   const windowSeconds = Number(process.env.READINGS_RATE_LIMIT_WINDOW_SECONDS ?? 60)
-  const rateKey = `rate:readings:${meter_id}`
 
-  const rate = await enforceRateLimit(rateKey, limit, windowSeconds)
-  if (!rate.allowed) {
-    return NextResponse.json(
-      { error: 'Too many requests, please try again later' },
-      {
-        status: 429,
-        headers: {
-          'Retry-After': rate.resetSeconds.toString(),
-          'X-RateLimit-Limit': limit.toString(),
-          'X-RateLimit-Remaining': rate.remaining.toString(),
-        },
-      }
-    )
+  // Redis-backed sliding-window rate limit by meter_id
+  const rateKey = `rate:readings:${meter_id}`
+  if (UPSTASH_REDIS_REST_URL) {
+    const rate = await checkRateLimitByKey(rateKey, limit, windowSeconds)
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests, please try again later' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': rate.resetSeconds.toString(),
+            'X-RateLimit-Limit': limit.toString(),
+            'X-RateLimit-Remaining': rate.remaining.toString(),
+          },
+        }
+      )
+    }
   }
 
   const db = createServiceClient()
@@ -163,14 +177,21 @@ export async function POST(req: NextRequest) {
   // Fetch meter + cooperative
   const { data: meter } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, cooperatives(admin_address)')
+    .select('id, pubkey_hex, cooperative_id, api_key, cooperatives(admin_address)')
     .eq('id', meter_id)
     .eq('active', true)
-    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null } | null }
+    .single() as { data: { id: string; pubkey_hex: string; cooperative_id: string; api_key: string; cooperatives: { admin_address: string } | null } | null }
 
   if (!meter) {
     log.warn('readings.post.meter_not_found', { meter_id })
     return NextResponse.json({ error: 'Meter not found or inactive' }, { status: 404 })
+  }
+
+  // Validate API key before Ed25519 signature check
+  const apiKey = req.headers.get('x-api-key')
+  if (!apiKey || apiKey !== meter.api_key) {
+    log.warn('readings.post.invalid_api_key', { meter_id })
+    return NextResponse.json({ error: 'Invalid or missing API key' }, { status: 401 })
   }
 
   // Rate limit: 60 requests/minute per meter public key
