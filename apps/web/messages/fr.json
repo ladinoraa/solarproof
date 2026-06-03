@@ -1,0 +1,77 @@
+{
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "meters": "Compteurs",
+    "certificates": "Certificats",
+    "governance": "Gouvernance",
+    "verify": "Vérifier",
+    "admin": "Admin",
+    "connectWallet": "Connecter le portefeuille",
+    "disconnectWallet": "Déconnecter le portefeuille",
+    "openMenu": "Ouvrir le menu de navigation",
+    "closeMenu": "Fermer le menu de navigation",
+    "switchLight": "Passer en mode clair",
+    "switchDark": "Passer en mode sombre"
+  },
+  "verify": {
+    "title": "Vérificateur de Certificats",
+    "subtitle": "Sans connexion. Entrez un ID de certificat, un hash de lecture ou un hash de transaction.",
+    "placeholder": "ID de certificat, hash de lecture ou hash de tx…",
+    "verify": "Vérifier",
+    "verifying": "Vérification…",
+    "share": "Partager",
+    "copied": "Copié !",
+    "fullChain": "Chaîne de custody complète confirmée",
+    "partialChain": "Vérification partielle — voir les étapes ci-dessous",
+    "steps": {
+      "meter": "Lecture du Compteur",
+      "meterDesc": "Le compteur physique a enregistré une lecture d'énergie signée.",
+      "signature": "Signature Ed25519",
+      "signatureDesc": "Signature de l'appareil vérifiée par rapport au hash de lecture.",
+      "anchor": "Ancrage On-chain",
+      "anchorDesc": "Hash de lecture ancré sur Stellar via le contrat audit_registry.",
+      "certificate": "Certificat Émis",
+      "certificateDesc": "Jeton d'énergie (1 jeton = 1 kWh) émis sur Stellar.",
+      "retirement": "Retrait",
+      "retirementDesc": "Certificat retiré pour éviter le double comptage."
+    },
+    "cert": {
+      "heading": "Certificat",
+      "id": "ID",
+      "energy": "Énergie",
+      "issued": "Émis le",
+      "status": "Statut",
+      "active": "Actif",
+      "retired": "Retiré"
+    }
+  },
+  "governance": {
+    "title": "Gouvernance",
+    "subtitle": "Propositions communautaires pour la coopérative SolarProof.",
+    "newProposal": "Nouvelle Proposition",
+    "active": "Actives",
+    "closed": "Fermées",
+    "connectToVote": "Connectez votre portefeuille pour voter.",
+    "youVoted": "Vous avez voté {choice}.",
+    "voteFor": "Pour",
+    "voteAgainst": "Contre",
+    "voteAbstain": "Abstention",
+    "form": {
+      "heading": "Nouvelle Proposition",
+      "title": "Titre",
+      "titlePlaceholder": "Titre court et descriptif",
+      "description": "Description",
+      "descriptionPlaceholder": "Expliquez la motivation et l'impact attendu…",
+      "days": "Période de vote (jours)",
+      "submit": "Soumettre la Proposition",
+      "submitConnect": "Connecter le Portefeuille et Soumettre",
+      "submitting": "Envoi en cours…",
+      "success": "Proposition soumise avec succès !",
+      "errors": {
+        "titleRequired": "Le titre est obligatoire.",
+        "descriptionRequired": "La description est obligatoire.",
+        "daysInvalid": "Entrez un nombre entre 1 et 30."
+      }
+    }
+  }
+}

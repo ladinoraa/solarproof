@@ -34,6 +34,7 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          # security-and-quality includes checks for SQL injection (CWE-089)
           queries: security-and-quality
 
       # Rust requires an explicit build so CodeQL can trace it
