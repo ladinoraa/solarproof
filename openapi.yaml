@@ -358,6 +358,82 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/verify/{certificateId}:
+    get:
+      operationId: verifyCertificateV1
+      tags: [verify]
+      summary: Public certificate verification (v1)
+      description: |
+        Returns the full chain of custody for a certificate. No authentication required.
+
+        Accepts a certificate UUID, reading hash (64-char hex), or mint transaction hash
+        as the `certificateId` path parameter.
+
+        Results are cached for 60 seconds. Rate limited to 60 requests per minute per IP.
+      security: []
+      parameters:
+        - name: certificateId
+          in: path
+          required: true
+          description: Certificate UUID, reading hash (64-char hex), or mint transaction hash
+          schema:
+            type: string
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+      responses:
+        '200':
+          description: Full chain of custody
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: public, max-age=60, stale-while-revalidate=30
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainOfCustody'
+              example:
+                certificate:
+                  id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                  kwh: 12.5
+                  issued_at: '2026-01-15T10:30:00Z'
+                  retired: false
+                  retired_at: null
+                  retired_by: null
+                on_chain:
+                  anchor_tx: abc123def456
+                  anchor_explorer: https://stellar.expert/explorer/testnet/tx/abc123def456
+                  mint_tx: def456abc123
+                  mint_explorer: https://stellar.expert/explorer/testnet/tx/def456abc123
+                  retirement_tx: null
+                meter_proof:
+                  meter_id: meter-001
+                  reading_hash: abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+                  signature_hex: aabbccdd...
+                  kwh: 12.5
+                  timestamp: '2026-01-15T10:00:00Z'
+                  verified: true
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Too Many Requests
+
   /api/certificates:
     get:
       operationId: listCertificates
