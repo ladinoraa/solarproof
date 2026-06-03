@@ -9,6 +9,8 @@ const RegisterSchema = z.object({
   cooperative_id: z.string().uuid(),
   serial_number: z.string().min(1).max(64),
   pubkey_hex: z.string().length(64),
+  meter_group: z.string().max(64).optional().nullable(),
+  tags: z.array(z.string().max(32)).optional().default([]),
 })
 
 /** Generate a unique meter API key: "mk_" + 32 random bytes as hex. */
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
   const db = createServiceClient()
   const { data, error } = await db
     .from('meters')
-    .select('id, serial_number, pubkey_hex, active, created_at, cooperative_id')
+    .select('id, name, serial_number, pubkey_hex, active, created_at, cooperative_id, meter_group, tags')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
