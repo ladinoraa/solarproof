@@ -33,8 +33,8 @@ export function middleware(req: NextRequest) {
   }
 
   // ── API versioning redirect ───────────────────────────────────────────────
-  // Match /api/<segment> but NOT /api/v1/... or /api/docs (OpenAPI spec)
-  const unversioned = pathname.match(/^\/api\/(?!v\d+\/)(.+)$/)
+  // Match /api/<segment> but NOT /api/v1/... or /api/docs or /api/admin
+  const unversioned = pathname.match(/^\/api\/(?!v\d+\/|admin\/)(.+)$/)
   if (unversioned) {
     const url = req.nextUrl.clone()
     url.pathname = `/api/v1/${unversioned[1]}`

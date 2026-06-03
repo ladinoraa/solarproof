@@ -4,9 +4,9 @@ export interface Database {
   public: {
     Tables: {
       cooperatives: {
-        Row: { id: string; name: string; admin_address: string; created_at: string }
-        Insert: { name: string; admin_address: string }
-        Update: Partial<{ name: string; admin_address: string }>
+        Row: { id: string; name: string; admin_address: string; created_at: string; suspended: boolean }
+        Insert: { name: string; admin_address: string; suspended?: boolean }
+        Update: Partial<{ name: string; admin_address: string; suspended: boolean }>
         Relationships: []
       }
       meters: {
