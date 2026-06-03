@@ -3,8 +3,9 @@
 import { useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Award, Leaf, Search, X } from 'lucide-react'
+import { Award, Leaf, Search, X, FileDown } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
+import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
 import { WalletGate } from '@/components/wallet-gate'
@@ -92,6 +93,30 @@ export default function CertificatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [draft, searchParams]
   )
+
+  async function handleTransfer(toAddress: string) {
+    if (!transferring) return
+    const pendingId = toast('pending', 'Submitting transfer transaction…')
+    try {
+      const res = await fetch(`/api/certificates/${transferring.id}/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_address: address, to_address: toAddress }),
+      })
+      dismiss(pendingId)
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Unknown error' }))
+        toast('error', msg ?? 'Transfer failed')
+        return
+      }
+      toast('success', 'Certificate transferred successfully')
+      setTransferring(null)
+      qc.invalidateQueries({ queryKey: ['certificates'] })
+    } catch (err) {
+      dismiss(pendingId)
+      toast('error', err instanceof Error ? err.message : 'Transfer failed')
+    }
+  }
 
   async function handleRetire(reason: string) {
     if (!retiring) return
@@ -360,14 +385,33 @@ export default function CertificatesPage() {
                       </td>
                       <td className="px-4 py-3">
                         {!cert.retired && (
-                          <button
-                            onClick={() => setRetiring(cert)}
-                            disabled={!connected}
-                            aria-label={`Retire certificate ${cert.id.slice(0, 8)}`}
-                            className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Retire
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setTransferring(cert)}
+                              disabled={!connected}
+                              aria-label={`Transfer certificate ${cert.id.slice(0, 8)}`}
+                              className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Transfer
+                            </button>
+                            <button
+                              onClick={() => setRetiring(cert)}
+                              disabled={!connected}
+                              aria-label={`Retire certificate ${cert.id.slice(0, 8)}`}
+                              className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Retire
+                            </button>
+                            <a
+                              href={`/api/certificates/${cert.id}/irec-export${address ? `?holder=${encodeURIComponent(address)}` : ''}`}
+                              download={`irec-${cert.id}.xml`}
+                              aria-label={`Export certificate ${cert.id.slice(0, 8)} as I-REC XML`}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                            >
+                              <FileDown className="h-3 w-3" aria-hidden="true" />
+                              I-REC
+                            </a>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -390,6 +434,15 @@ export default function CertificatesPage() {
             kwh={retiring.kwh}
             onConfirm={handleRetire}
             onClose={() => setRetiring(null)}
+          />
+        )}
+
+        {transferring && (
+          <TransferModal
+            certificateId={transferring.id}
+            kwh={transferring.kwh}
+            onConfirm={handleTransfer}
+            onClose={() => setTransferring(null)}
           />
         )}
       </div>
