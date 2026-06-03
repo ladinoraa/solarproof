@@ -56,6 +56,7 @@ export interface Database {
           reading_hash: string; mint_tx_hash: string; anchor_tx_hash: string
           kwh: number; issued_at: string; retired: boolean
           retired_at: string | null; retired_by: string | null
+          retire_tx_hash: string | null
         }
         Insert: {
           cooperative_id: string; reading_id: string
@@ -101,6 +102,14 @@ export interface Database {
         }
         Insert: Omit<Database['public']['Tables']['audit_logs']['Row'], 'id' | 'timestamp'>
         Update: never
+      }
+      retirement_events: {
+        Row: {
+          id: string; certificate_id: string; beneficiary: string
+          retire_tx_hash: string; kwh: number; retired_at: string
+        }
+        Insert: Omit<Database['public']['Tables']['retirement_events']['Row'], 'id' | 'retired_at'>
+        Update: Partial<Database['public']['Tables']['retirement_events']['Insert']>
       }
     }
     Views: Record<string, never>
