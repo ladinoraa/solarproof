@@ -4,27 +4,19 @@ export interface Database {
   public: {
     Tables: {
       cooperatives: {
-        Row: { id: string; name: string; admin_address: string; created_at: string }
-        Insert: { name: string; admin_address: string }
-        Update: Partial<{ name: string; admin_address: string }>
+        Row: { id: string; name: string; admin_address: string; created_at: string; suspended: boolean }
+        Insert: { name: string; admin_address: string; suspended?: boolean }
+        Update: Partial<{ name: string; admin_address: string; suspended: boolean }>
         Relationships: []
       }
       meters: {
         Row: {
           id: string; cooperative_id: string; serial_number: string
           name: string; pubkey_hex: string; active: boolean; created_at: string
-          meter_group: string | null; tags: string[]
+          api_key: string
         }
-        Insert: { 
-          cooperative_id: string; serial_number: string; name: string; 
-          pubkey_hex: string; active: boolean; meter_group?: string | null; 
-          tags?: string[] 
-        }
-        Update: Partial<{ 
-          cooperative_id: string; serial_number: string; name: string; 
-          pubkey_hex: string; active: boolean; meter_group: string | null; 
-          tags: string[] 
-        }>
+        Insert: { cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean; api_key?: string }
+        Update: Partial<{ cooperative_id: string; serial_number: string; name: string; pubkey_hex: string; active: boolean; api_key: string }>
         Relationships: []
       }
       readings: {

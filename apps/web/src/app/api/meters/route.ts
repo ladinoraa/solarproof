@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { randomBytes } from 'crypto'
 import { createServiceClient } from '@/lib/supabase'
 import { requireAuth, isAuthError } from '@/lib/auth'
 
@@ -11,6 +12,11 @@ const RegisterSchema = z.object({
   meter_group: z.string().max(64).optional().nullable(),
   tags: z.array(z.string().max(32)).optional().default([]),
 })
+
+/** Generate a unique meter API key: "mk_" + 32 random bytes as hex. */
+function generateApiKey(): string {
+  return 'mk_' + randomBytes(32).toString('hex')
+}
 
 /** GET /api/meters — list all meters (requires operator JWT) */
 export async function GET(req: NextRequest) {
@@ -53,10 +59,11 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await db
     .from('meters')
-    .insert({ ...parsed.data, active: true })
+    .insert({ ...parsed.data, active: true, api_key: generateApiKey() })
     .select()
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Return full row including api_key — only shown once at registration
   return NextResponse.json(data, { status: 201 })
 }
