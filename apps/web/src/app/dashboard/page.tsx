@@ -245,7 +245,6 @@ export default function DashboardPage() {
           ) : null}
         </div>
       </section>
-      </SectionErrorBoundary>
 
       {/* Charts */}
       <section aria-labelledby="charts-heading" className="mb-8">
@@ -360,7 +359,6 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
-      </SectionErrorBoundary>
 
       {/* Recent readings table */}
       <section aria-labelledby="readings-heading">
@@ -416,7 +414,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
-      </SectionErrorBoundary>
     </div>
     </WalletGate>
   )

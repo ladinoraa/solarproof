@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { Search, CheckCircle, XCircle, Shield, ExternalLink, Copy } from 'lucide-react'
 import { SectionSkeleton } from '@/components/skeleton'
 import { CopyableText } from '@/components/copy-button'
+import { useToast } from '@/components/ToastProvider'
 
 interface ChainOfCustody {
   certificate: {
@@ -105,6 +106,7 @@ export default function VerifyPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const { pushToast: toast } = useToast()
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
@@ -120,12 +122,12 @@ export default function VerifyPage() {
       if (!res.ok) {
         const message = data.error || 'Unable to verify certificate'
         setError(message)
-        pushToast({ variant: 'error', title: 'Verification failed', description: message })
+        toast({ variant: 'error', title: 'Verification failed', description: message })
         return
       }
 
       setResult(data)
-      pushToast({ variant: 'success', title: 'Certificate verified', description: 'Full chain of custody confirmed.' })
+      toast({ variant: 'success', title: 'Certificate verified', description: 'Full chain of custody confirmed.' })
     } catch {
       setError('Network error — please try again.')
     } finally {
@@ -283,7 +285,7 @@ export default function VerifyPage() {
             })}
           </ol>
 
-          {result.meter_proof && (
+          {result?.meter_proof && (
             <Section title="Meter proof">
               <Row label="Meter ID" value={result.meter_proof.meter_id} mono copyable />
               <Row
@@ -310,6 +312,15 @@ export default function VerifyPage() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</h3>
+      <dl className="space-y-2 text-sm">{children}</dl>
     </div>
   )
 }
@@ -367,33 +378,6 @@ function Row({
           value
         )}
       </dd>
-    </div>
-  )
-}
-      {link ? (
-        <dd>
-          <a
-            href={link}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`${label}: ${value} (opens in new tab)`}
-            className={`flex items-center gap-1 break-all text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 rounded dark:text-blue-400 dark:focus:ring-yellow-500 dark:focus:ring-offset-gray-900 ${
-              mono ? 'font-mono text-xs' : ''
-            }`}
-          >
-            {value}
-            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-          </a>
-        </dd>
-      ) : (
-        <dd
-          className={`break-all text-right text-gray-900 dark:text-gray-100 ${
-            mono ? 'font-mono text-xs' : ''
-          }`}
-        >
-          {value}
-        </dd>
-      )}
     </div>
   )
 }
