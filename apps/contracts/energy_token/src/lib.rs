@@ -1,8 +1,8 @@
 //! # Energy Token (`energy-token`)
 //!
 //! SEP-41 fungible certificate token representing verified renewable energy.
-//! **1 token = 1 kWh** of generation that has been cryptographically anchored
-//! on-chain via the `audit_registry` contract.
+//! **1000 token units = 1 kWh** (decimals = 3; 1 unit = 0.001 kWh).
+//! Generation is cryptographically anchored on-chain via the `audit_registry` contract.
 //!
 //! ## Roles
 //! | Role | Description |
@@ -73,9 +73,10 @@ impl EnergyToken {
         String::from_str(&env, "SKWH")
     }
 
-    /// Returns the number of decimal places: `7` (matching Stellar's stroop precision).
+    /// Returns the number of decimal places: `3` (milli-kWh precision).
+    /// 1 token unit = 0.001 kWh; 1000 units = 1 kWh.
     pub fn decimals(_env: Env) -> u32 {
-        7
+        3
     }
 
     // ── SEP-41 balance / transfer ────────────────────────────────────────────
@@ -513,7 +514,7 @@ mod tests {
         let (env, client) = setup();
         assert_eq!(client.name(), String::from_str(&env, "SolarProof kWh"));
         assert_eq!(client.symbol(), String::from_str(&env, "SKWH"));
-        assert_eq!(client.decimals(), 7);
+        assert_eq!(client.decimals(), 3);
     }
 
     #[test]
@@ -978,7 +979,7 @@ mod tests {
         let (env, client) = setup();
         assert_eq!(client.name(), String::from_str(&env, "SolarProof Energy Certificate"));
         assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
-        assert_eq!(client.decimals(), 7_u32);
+        assert_eq!(client.decimals(), 3_u32);
     }
 
     #[test]
