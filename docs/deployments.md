@@ -4,6 +4,20 @@ Deployed contract addresses for each environment. Update this file after every d
 
 ---
 
+## Staging (Testnet)
+
+Staging uses Stellar **Testnet** and a separate Supabase project. See [docs/STAGING.md](./STAGING.md) for setup.
+
+| Contract | Contract ID | Deployed At | Deployed By |
+|---|---|---|---|
+| `energy_token` | _(set after first staging deploy)_ | — | — |
+| `audit_registry` | _(set after first staging deploy)_ | — | — |
+| `community_governance` | _(set after first staging deploy)_ | — | — |
+
+Explorer: `https://stellar.expert/explorer/testnet/contract/<CONTRACT_ID>`
+
+---
+
 ## Testnet
 
 | Contract | Contract ID | Deployed At | Deployed By |
