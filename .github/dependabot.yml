@@ -39,3 +39,17 @@ updates:
       # Flag major version bumps for manual review
       - dependency-name: "*"
         update-types: [version-update:semver-major]
+
+  # GitHub Actions — monthly to reduce noise
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    ignore:
+      # Flag major version bumps for manual review
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
