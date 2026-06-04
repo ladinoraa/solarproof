@@ -71,7 +71,7 @@ export async function revokeToken(accessToken: string): Promise<void> {
  */
 export async function requireAuth(
   req: NextRequest
-): Promise<{ user: { id: string; email?: string }; accessToken: string } | NextResponse> {
+): Promise<{ user: { id: string; email?: string }; accessToken: string; cooperativeId: string } | NextResponse> {
   const authHeader = req.headers.get('authorization') ?? ''
   const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
 
@@ -92,7 +92,16 @@ export async function requireAuth(
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 })
   }
 
-  return { user: { id: data.user.id, email: data.user.email }, accessToken }
+  const cooperativeId = data.user.app_metadata.cooperative_id
+  if (!cooperativeId) {
+    return NextResponse.json({ error: 'User has no associated cooperative' }, { status: 403 })
+  }
+
+  return {
+    user: { id: data.user.id, email: data.user.email },
+    accessToken,
+    cooperativeId,
+  }
 }
 
 /**

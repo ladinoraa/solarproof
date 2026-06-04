@@ -44,7 +44,7 @@ type Period = 'daily' | 'weekly' | 'monthly'
 // Fetch helpers
 // ---------------------------------------------------------------------------
 async function fetchStats(): Promise<Stats> {
-  const res = await fetch('/api/readings?type=stats')
+  const res = await fetch('/api/cooperative/stats')
   if (!res.ok) throw new Error('Failed to load stats')
   return res.json()
 }

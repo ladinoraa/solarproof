@@ -6,7 +6,6 @@ import { requireAuth, isAuthError } from '@/lib/auth'
 
 const RegisterSchema = z.object({
   name: z.string().min(1).max(128),
-  cooperative_id: z.string().uuid(),
   serial_number: z.string().min(1).max(64),
   pubkey_hex: z.string().length(64),
   meter_group: z.string().max(64).optional().nullable(),
@@ -27,6 +26,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await db
     .from('meters')
     .select('id, name, serial_number, pubkey_hex, active, created_at, cooperative_id, meter_group, tags')
+    .eq('cooperative_id', auth.cooperativeId)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -46,6 +46,24 @@ export async function POST(req: NextRequest) {
 
   const db = createServiceClient()
 
+  // Fetch cooperative account type and current meter count
+  const [{ data: coop }, { count: meterCount }] = await Promise.all([
+    db.from('cooperatives').select('account_type').eq('id', auth.cooperativeId).single(),
+    db.from('meters').select('id', { count: 'exact', head: true }).eq('cooperative_id', auth.cooperativeId),
+  ])
+
+  if (!coop) {
+    return NextResponse.json({ error: 'Cooperative not found' }, { status: 404 })
+  }
+
+  // Enforce 1-meter limit for individual accounts
+  if (coop.account_type === 'individual' && (meterCount ?? 0) >= 1) {
+    return NextResponse.json(
+      { error: 'Individual accounts are limited to 1 meter. Please upgrade to a Cooperative account for multi-meter management.' },
+      { status: 403 }
+    )
+  }
+
   // Check for duplicate public key
   const { data: existing } = await db
     .from('meters')
@@ -59,7 +77,12 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await db
     .from('meters')
-    .insert({ ...parsed.data, active: true, api_key: generateApiKey() })
+    .insert({
+      ...parsed.data,
+      cooperative_id: auth.cooperativeId,
+      active: true,
+      api_key: generateApiKey(),
+    })
     .select()
     .single()
 
