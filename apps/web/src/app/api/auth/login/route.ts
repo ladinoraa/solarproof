@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 import { env } from '@/env'
 
 const LoginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
+  email: z.string().trim().email(),
+  password: z.string().trim().min(8),
 })
 
 /** POST /api/auth/login — exchange email+password for access + refresh tokens */

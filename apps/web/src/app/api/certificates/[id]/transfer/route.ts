@@ -7,8 +7,8 @@ import { auditLog } from '@/lib/audit'
 import { fireWebhook } from '@/lib/webhooks'
 
 const TransferSchema = z.object({
-  from_address: z.string().min(1),
-  to_address: z.string().min(1),
+  from_address: z.string().trim().min(1),
+  to_address: z.string().trim().min(1),
 })
 
 const ParamsSchema = z.object({

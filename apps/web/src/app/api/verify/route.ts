@@ -7,7 +7,7 @@ import { env } from '@/env'
 
 // UUID or 64-char hex hash (reading_hash / tx_hash)
 const VerifyQuerySchema = z.object({
-  id: z.string().regex(/^[0-9a-f]{64}$|^[0-9a-f-]{36}$/i, 'id must be a UUID or 64-char hex hash'),
+  id: z.string().trim().regex(/^[0-9a-f]{64}$|^[0-9a-f-]{36}$/i, 'id must be a UUID or 64-char hex hash'),
 })
 
 /**
@@ -18,7 +18,8 @@ const VerifyQuerySchema = z.object({
  * Results are cached in Redis for 60 s (TTL defined in cache.ts).
  */
 export async function GET(req: NextRequest) {
-  const parsed = VerifyQuerySchema.safeParse({ id: req.nextUrl.searchParams.get('id')?.trim() })
+  const queryParams = Object.fromEntries(req.nextUrl.searchParams.entries())
+  const parsed = VerifyQuerySchema.safeParse(queryParams)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }

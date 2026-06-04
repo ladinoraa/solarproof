@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { buildIRecXml } from '@/lib/irec-xml'
 
 const ParamsSchema = z.object({ id: z.string().uuid() })
+const QuerySchema = z.object({ holder: z.string().trim().default('') })
 
 /**
  * GET /api/certificates/[id]/irec-export
@@ -20,6 +21,13 @@ export async function GET(
   }
   const { id } = parsedParams.data
 
+  const { searchParams } = req.nextUrl
+  const parsedQuery = QuerySchema.safeParse(Object.fromEntries(searchParams.entries()))
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
+  }
+  const { holder: holderAddress } = parsedQuery.data
+
   const db = createServiceClient()
   const { data: cert } = await db
     .from('certificates')
@@ -30,9 +38,6 @@ export async function GET(
   if (!cert) {
     return NextResponse.json({ error: 'Certificate not found' }, { status: 404 })
   }
-
-  // Resolve wallet address from query param (holder must supply their address)
-  const holderAddress = req.nextUrl.searchParams.get('holder') ?? ''
 
   const readings = cert.readings as { meter_id: string } | { meter_id: string }[]
   const meter_id = Array.isArray(readings) ? readings[0]?.meter_id : readings?.meter_id ?? null

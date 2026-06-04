@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { requireAdmin } from '@/lib/admin-auth'
 
 const PatchSchema = z.object({ suspended: z.boolean() })
+const ParamsSchema = z.object({ id: z.string().uuid() })
 
 /**
  * PATCH /api/admin/operators/[id]
@@ -13,7 +14,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const err = requireAdmin(req)
   if (err) return err
 
-  const { id } = await params
+  const resolvedParams = await params
+  const parsedParams = ParamsSchema.safeParse(resolvedParams)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 })
+  }
+  const { id } = parsedParams.data
+
   const body = await req.json().catch(() => null)
   const parsed = PatchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })

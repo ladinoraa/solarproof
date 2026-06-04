@@ -6,7 +6,7 @@ import { fireWebhook } from '@/lib/webhooks'
 import { triggerIRecRetirement } from '@/lib/irec-bridge'
 import { sendRetiredEmail } from '@/lib/email'
 
-const RetireSchema = z.object({ wallet_address: z.string().min(1) })
+const RetireSchema = z.object({ wallet_address: z.string().trim().min(1) })
 const ParamsSchema = z.object({ id: z.string().uuid() })
 
 /**
