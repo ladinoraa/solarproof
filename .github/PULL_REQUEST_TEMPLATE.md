@@ -14,5 +14,6 @@ Closes #
 - [ ] Tests pass
 - [ ] No new lint warnings
 - [ ] Docs updated if needed
+- [ ] CHANGELOG.md updated
 - [ ] PR targets `develop`
 - [ ] Supabase queries audited for SQL injection (no raw SQL, parameterized methods used)

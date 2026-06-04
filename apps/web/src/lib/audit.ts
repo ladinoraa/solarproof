@@ -4,8 +4,10 @@ import { createServiceClient } from '@/lib/supabase'
 export type AuditAction =
   | 'reading.create'
   | 'certificate.retire'
+  | 'certificate.transfer'
   | 'meter.register'
   | 'meter.deactivate'
+  | 'meter.revoke'
 
 interface AuditEntry {
   operator_id: string
