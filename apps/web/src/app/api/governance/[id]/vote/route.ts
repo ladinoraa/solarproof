@@ -7,10 +7,18 @@ const VoteSchema = z.object({
   choice: z.enum(['for', 'against', 'abstain']),
 })
 
+const ParamsSchema = z.object({ id: z.string().uuid() })
+
 /** POST /api/governance/[id]/vote — cast a vote */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requireAuth(req)
   if (isAuthError(auth)) return auth
+
+  const parsedParams = ParamsSchema.safeParse(params)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 })
+  }
+  const { id } = parsedParams.data
 
   const body = await req.json().catch(() => null)
   const parsed = VoteSchema.safeParse(body)
@@ -24,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: proposal, error: fetchError } = await db
     .from('proposals')
     .select('id, status, ends_at')
-    .eq('id', params.id)
+    .eq('id', id)
     .eq('cooperative_id', auth.cooperativeId)
     .single()
 
@@ -40,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { error } = await db
     .from('votes')
     .upsert({
-      proposal_id: params.id,
+      proposal_id: id,
       voter_id: auth.user.id,
       choice: parsed.data.choice,
     })

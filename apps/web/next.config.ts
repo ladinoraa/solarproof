@@ -9,7 +9,10 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  },
   {
     key: 'Content-Security-Policy',
     value: [
@@ -21,16 +24,6 @@ const securityHeaders = [
       "connect-src 'self' https://*.supabase.co https://soroban-testnet.stellar.org https://soroban.stellar.org wss://*.supabase.co",
       "frame-ancestors 'none'",
     ].join('; '),
-  },
-]
-
-const securityHeaders = [
-  { key: 'X-Frame-Options', value: 'DENY' },
-  { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  {
-    key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   },
 ]
 

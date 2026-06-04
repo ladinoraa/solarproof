@@ -8,7 +8,7 @@ const MAX_BULK = 100
 
 const BulkRetireSchema = z.object({
   certificate_ids: z.array(z.string().uuid()).min(1).max(MAX_BULK),
-  wallet_address: z.string().min(1),
+  wallet_address: z.string().trim().min(1),
 })
 
 /**

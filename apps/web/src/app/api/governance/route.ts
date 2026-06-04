@@ -4,9 +4,9 @@ import { createServiceClient } from '@/lib/supabase'
 import { requireAuth, isAuthError } from '@/lib/auth'
 
 const ProposalSchema = z.object({
-  title: z.string().min(1).max(120),
-  description: z.string().min(1).max(2000),
-  action: z.string().max(200).optional(),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(2000),
+  action: z.string().trim().max(200).optional(),
   days: z.number().min(1).max(30).default(7),
 })
 

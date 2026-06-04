@@ -5,11 +5,11 @@ import { createServiceClient } from '@/lib/supabase'
 import { requireAuth, isAuthError } from '@/lib/auth'
 
 const RegisterSchema = z.object({
-  name: z.string().min(1).max(128),
-  serial_number: z.string().min(1).max(64),
-  pubkey_hex: z.string().length(64),
-  meter_group: z.string().max(64).optional().nullable(),
-  tags: z.array(z.string().max(32)).optional().default([]),
+  name: z.string().trim().min(1).max(128),
+  serial_number: z.string().trim().min(1).max(64),
+  pubkey_hex: z.string().trim().length(64),
+  meter_group: z.string().trim().max(64).optional().nullable(),
+  tags: z.array(z.string().trim().max(32)).optional().default([]),
 })
 
 /** Generate a unique meter API key: "mk_" + 32 random bytes as hex. */

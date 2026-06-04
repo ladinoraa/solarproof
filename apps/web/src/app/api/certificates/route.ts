@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 
 const MAX_PAGE_SIZE = 100
+
+const QuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(20),
+  cursor: z.string().optional(),
+  q: z.string().trim().default(''),
+  status: z.enum(['active', 'retired']).nullable().optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+})
 
 /**
  * GET /api/v1/certificates
@@ -17,12 +27,14 @@ const MAX_PAGE_SIZE = 100
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const limit = Math.min(Number(searchParams.get('limit') ?? 20), MAX_PAGE_SIZE)
-  const cursor = searchParams.get('cursor')
-  const q = searchParams.get('q')?.trim() ?? ''
-  const status = searchParams.get('status') // "active" | "retired" | null
-  const dateFrom = searchParams.get('date_from')
-  const dateTo = searchParams.get('date_to')
+  const queryParams = Object.fromEntries(searchParams.entries())
+  const parsedQuery = QuerySchema.safeParse(queryParams)
+
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
+  }
+
+  const { limit, cursor, q, status, date_from: dateFrom, date_to: dateTo } = parsedQuery.data
 
   const db = createServiceClient()
 

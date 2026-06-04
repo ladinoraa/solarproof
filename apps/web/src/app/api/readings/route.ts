@@ -25,6 +25,11 @@ async function checkRateLimitByKey(
   return { allowed: true, resetSeconds: 0, remaining: _limit }
 }
 
+const QuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.string().optional(),
+})
+
 /**
  * GET /api/v1/readings
  *
@@ -37,9 +42,14 @@ export async function GET(req: NextRequest) {
   if (isAuthError(auth)) return auth
 
   const { searchParams } = req.nextUrl
-  const limit = Math.min(Number(searchParams.get('limit') ?? 20), MAX_PAGE_SIZE)
-  const cursor = searchParams.get('cursor') // ISO timestamp of last seen row
+  const queryParams = Object.fromEntries(searchParams.entries())
+  const parsedQuery = QuerySchema.safeParse(queryParams)
 
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
+  }
+
+  const { limit, cursor } = parsedQuery.data
   const db = createServiceClient()
 
   // Total count (for UI pagination)
@@ -87,8 +97,8 @@ const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(), // Unix seconds
-  signature_hex: z.string().length(128),  // 64-byte Ed25519 sig as hex
-  nonce: z.string().min(1).max(128),      // Required for replay protection
+  signature_hex: z.string().trim().length(128),  // 64-byte Ed25519 sig as hex
+  nonce: z.string().trim().min(1).max(128),      // Required for replay protection
 })
 
 /**

@@ -11,7 +11,7 @@ const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(),
-  signature_hex: z.string().length(128),
+  signature_hex: z.string().trim().length(128),
 })
 
 const BatchSchema = z.array(ReadingSchema).min(1).max(100)
