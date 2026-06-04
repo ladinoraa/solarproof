@@ -11,7 +11,7 @@ const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
   kwh: z.number().positive(),
   timestamp: z.number().int().positive(),
-  signature_hex: z.string().length(128),
+  signature_hex: z.string().trim().length(128),
 })
 
 const BatchSchema = z.array(ReadingSchema).min(1).max(100)
@@ -55,9 +55,10 @@ type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooper
   const meterIds = [...new Set(readings.map(r => r.meter_id))]
   const { data: meters } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, cooperatives(admin_address)')
+    .select('id, pubkey_hex, cooperative_id, revoked_at, cooperatives(admin_address)')
     .in('id', meterIds)
-    .eq('active', true) as { data: MeterRow[] | null }
+    .eq('active', true)
+    .is('revoked_at', null) as { data: (MeterRow & { revoked_at: string | null })[] | null }
 
   const meterMap = new Map((meters ?? []).map(m => [m.id, m]))
 

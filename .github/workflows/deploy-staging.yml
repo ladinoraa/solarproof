@@ -4,10 +4,43 @@ on:
   push:
     branches: [develop]
 
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
 jobs:
-  deploy-staging:
-    name: Deploy to Staging (Vercel)
+  # ── 1. Run CI gate before deploying ─────────────────────────────────────────
+  test:
+    name: Test before staging deploy
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+        working-directory: apps/web
+        env:
+          REDIS_URL: redis://localhost:6379
+
+  # ── 2. Deploy to Vercel staging ──────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Vercel (staging)
+    runs-on: ubuntu-latest
+    needs: test
     environment: staging
     steps:
       - uses: actions/checkout@v4
@@ -21,22 +54,33 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Deploy to Vercel (staging)
-        run: |
-          pnpm dlx vercel deploy \
-            --token ${{ secrets.VERCEL_TOKEN }} \
-            --scope ${{ secrets.VERCEL_ORG_ID }} \
-            --yes \
-            --env NEXT_PUBLIC_SUPABASE_URL=${{ secrets.STAGING_SUPABASE_URL }} \
-            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.STAGING_SUPABASE_ANON_KEY }} \
-            --env NEXT_PUBLIC_STELLAR_NETWORK=testnet \
-            --env NEXT_PUBLIC_ENERGY_TOKEN_ID=${{ secrets.STAGING_ENERGY_TOKEN_ID }} \
-            --env NEXT_PUBLIC_AUDIT_REGISTRY_ID=${{ secrets.STAGING_AUDIT_REGISTRY_ID }} \
-            --env NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID=${{ secrets.STAGING_COMMUNITY_GOVERNANCE_ID }} \
-            --env MINTER_SECRET_KEY=${{ secrets.STAGING_MINTER_SECRET_KEY }} \
-            apps/web
+      - name: Deploy to Vercel (staging project)
         id: deploy
-
-      - name: Comment staging URL on commit
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_STAGING }}
         run: |
-          echo "Staging deployed: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          url=$(pnpm dlx vercel deploy \
+            --token "$VERCEL_TOKEN" \
+            --scope "$VERCEL_ORG_ID" \
+            --yes \
+            apps/web 2>&1 | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Health check staging
+        run: |
+          URL="${{ steps.deploy.outputs.url }}/api/health"
+          for i in $(seq 1 5); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check $i passed ✓"
+              exit 0
+            fi
+            echo "Health check $i: HTTP $STATUS — retrying in 15 s"
+            sleep 15
+          done
+          echo "Staging health check failed" && exit 1
+
+      - name: Post staging URL to summary
+        run: echo "### 🚀 Staging deployed" >> $GITHUB_STEP_SUMMARY && echo "${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY

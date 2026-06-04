@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+
+const QuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  operator_id: z.string().trim().optional(),
+})
 
 /**
  * GET /api/audit-log?from=ISO&to=ISO&operator_id=...
@@ -8,10 +15,16 @@ import { createServiceClient } from '@/lib/supabase'
  * Query params are all optional; defaults to last 30 days.
  */
 export async function GET(req: NextRequest) {
-  const { searchParams } = req.nextUrl
-  const from = searchParams.get('from') ?? new Date(Date.now() - 30 * 86_400_000).toISOString()
-  const to = searchParams.get('to') ?? new Date().toISOString()
-  const operatorId = searchParams.get('operator_id')
+  const queryParams = Object.fromEntries(req.nextUrl.searchParams.entries())
+  const parsed = QuerySchema.safeParse(queryParams)
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const from = parsed.data.from ?? new Date(Date.now() - 30 * 86_400_000).toISOString()
+  const to = parsed.data.to ?? new Date().toISOString()
+  const operatorId = parsed.data.operator_id
 
   const db = createServiceClient()
   let query = db

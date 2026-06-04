@@ -15,7 +15,9 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-      redis:
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
         condition: service_healthy
     volumes:
       - ./apps/web:/app/apps/web
@@ -44,12 +46,27 @@ services:
       retries: 5
       start_period: 20s
 
-  redis:
+  redis-cache:
     image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - redis_cache_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis-queue:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_queue_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -59,4 +76,5 @@ services:
 
 volumes:
   supabase_data:
-  redis_data:
+  redis_cache_data:
+  redis_queue_data:

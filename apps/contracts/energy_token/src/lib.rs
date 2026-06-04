@@ -1,8 +1,8 @@
 //! # Energy Token (`energy-token`)
 //!
 //! SEP-41 fungible certificate token representing verified renewable energy.
-//! **1 token = 1 kWh** of generation that has been cryptographically anchored
-//! on-chain via the `audit_registry` contract.
+//! **1000 token units = 1 kWh** (decimals = 3; 1 unit = 0.001 kWh).
+//! Generation is cryptographically anchored on-chain via the `audit_registry` contract.
 //!
 //! ## Roles
 //! | Role | Description |
@@ -73,14 +73,20 @@ impl EnergyToken {
         String::from_str(&env, "SKWH")
     }
 
-    /// Returns the number of decimal places: `7` (matching Stellar's stroop precision).
+    /// Returns the number of decimal places: `3` (milli-kWh precision).
+    /// 1 token unit = 0.001 kWh; 1000 units = 1 kWh.
     pub fn decimals(_env: Env) -> u32 {
-        7
+        3
     }
 
     // ── SEP-41 balance / transfer ────────────────────────────────────────────
 
     /// Returns the token balance of `account`. Returns `0` for unknown accounts.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let bal = client.balance(&holder_address); // e.g. 125_000_000 (12.5 kWh in stroops)
+    /// ```
     pub fn balance(env: Env, account: Address) -> i128 {
         env.storage()
             .persistent()
@@ -292,6 +298,11 @@ impl EnergyToken {
     }
 
     /// Returns the current circulating supply: `total_minted - total_burned`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let supply = client.total_supply(); // tokens currently in circulation
+    /// ```
     pub fn total_supply(env: Env) -> i128 {
         let minted: i128 = env
             .storage()
@@ -503,7 +514,7 @@ mod tests {
         let (env, client) = setup();
         assert_eq!(client.name(), String::from_str(&env, "SolarProof kWh"));
         assert_eq!(client.symbol(), String::from_str(&env, "SKWH"));
-        assert_eq!(client.decimals(), 7);
+        assert_eq!(client.decimals(), 3);
     }
 
     #[test]
@@ -968,7 +979,7 @@ mod tests {
         let (env, client) = setup();
         assert_eq!(client.name(), String::from_str(&env, "SolarProof Energy Certificate"));
         assert_eq!(client.symbol(), String::from_str(&env, "SPEC"));
-        assert_eq!(client.decimals(), 7_u32);
+        assert_eq!(client.decimals(), 3_u32);
     }
 
     #[test]
@@ -1012,5 +1023,74 @@ mod tests {
         let user = Address::generate(&env);
         client.mint(&user, &1_i128);
         assert_eq!(client.balance(&user), 1_i128);
+    }
+
+    // ── event emission tests (#330) ──────────────────────────────────────────
+
+    #[test]
+    fn test_mint_emits_event() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &500_i128);
+        let events = env.events().all();
+        // Find the mint event: topic = ("mint",), data = (to, amount)
+        let mint_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("mint"), &env)]
+        });
+        assert!(mint_event.is_some(), "mint event not emitted");
+        let (_, _, data) = mint_event.unwrap();
+        let (to, amount): (Address, i128) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(to, user);
+        assert_eq!(amount, 500_i128);
+    }
+
+    #[test]
+    fn test_transfer_emits_event() {
+        let (env, client) = setup();
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        client.mint(&a, &1000_i128);
+        env.events().all(); // clear
+        client.transfer(&a, &b, &300_i128);
+        let events = env.events().all();
+        let transfer_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("transfer"), &env)]
+        });
+        assert!(transfer_event.is_some(), "transfer event not emitted");
+        let (_, _, data) = transfer_event.unwrap();
+        let (from, to, amount): (Address, Address, i128) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(from, a);
+        assert_eq!(to, b);
+        assert_eq!(amount, 300_i128);
+    }
+
+    #[test]
+    fn test_retire_emits_event() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.retire(&user, &String::from_str(&env, "REC compliance"));
+        let events = env.events().all();
+        let retire_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("retire"), &env)]
+        });
+        assert!(retire_event.is_some(), "retire event not emitted");
+    }
+
+    #[test]
+    fn test_burn_emits_event() {
+        let (env, client) = setup();
+        let user = Address::generate(&env);
+        client.mint(&user, &1000_i128);
+        client.burn(&user, &200_i128);
+        let events = env.events().all();
+        let burn_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("burn"), &env)]
+        });
+        assert!(burn_event.is_some(), "burn event not emitted");
+        let (_, _, data) = burn_event.unwrap();
+        let (from, amount): (Address, i128) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(from, user);
+        assert_eq!(amount, 200_i128);
     }
 }

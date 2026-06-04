@@ -27,7 +27,7 @@ vi.mock('@/lib/cache', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }))
 vi.mock('@/lib/auth', () => ({
-  requireAuth: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }),
+  requireAuth: vi.fn().mockResolvedValue({ user: { id: 'user-1' }, cooperativeId: 'coop-1' }),
   isAuthError: vi.fn().mockReturnValue(false),
 }))
 vi.mock('@/lib/webhooks', () => ({
@@ -41,10 +41,12 @@ import { createServiceClient } from '@/lib/supabase'
 import { POST as postReading } from '@/app/api/readings/route'
 import { POST as postMeter } from '@/app/api/meters/route'
 import { mintCertificates } from '@/lib/stellar'
+import { requireAuth } from '@/lib/auth'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const METER_ID = '123e4567-e89b-12d3-a456-426614174000'
+const COOP_ID = 'coop-1'
 const KWH = 5.0
 const TIMESTAMP = 1_700_000_000
 
@@ -75,7 +77,7 @@ async function makeReadingBody(privKey: Uint8Array, overrides: Record<string, un
 function makeReadingRequest(body: unknown) {
   return {
     json: () => Promise.resolve(body),
-    headers: { get: (_: string) => null },
+    headers: { get: (key: string) => key === 'x-api-key' ? 'mk_test_api_key' : null },
     nextUrl: { searchParams: new URLSearchParams() },
   } as unknown as Parameters<typeof postReading>[0]
 }
@@ -140,16 +142,29 @@ function mockReadingDb(meter: unknown) {
   } as ReturnType<typeof createServiceClient>)
 }
 
-function mockMeterDb({ existing = null }: { existing?: unknown } = {}) {
+function mockMeterDb({
+  existing = null,
+  accountType = 'cooperative',
+  meterCount = 0,
+}: { existing?: unknown; accountType?: string; meterCount?: number } = {}) {
   const maybeSingle = vi.fn().mockResolvedValue({ data: existing })
   const insertSingle = vi.fn().mockResolvedValue({
     data: { id: 'meter-1', active: true },
     error: null,
   })
+
   vi.mocked(createServiceClient).mockReturnValue({
     from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({ maybeSingle }),
+      select: vi.fn().mockImplementation((_fields, options) => {
+        if (options?.count) {
+          return Promise.resolve({ count: meterCount, error: null })
+        }
+        return {
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: existing }),
+            single: vi.fn().mockResolvedValue({ data: { account_type: accountType }, error: null }),
+          }),
+        }
       }),
       insert: vi.fn().mockReturnValue({
         select: vi.fn().mockReturnValue({ single: insertSingle }),
@@ -158,7 +173,10 @@ function mockMeterDb({ existing = null }: { existing?: unknown } = {}) {
   } as ReturnType<typeof createServiceClient>)
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(requireAuth).mockResolvedValue({ user: { id: 'user-1' }, cooperativeId: COOP_ID, accessToken: 'abc' })
+})
 
 // ── Issue #29 — Input validation on all API routes ────────────────────────────
 
@@ -220,20 +238,6 @@ describe('regression issue_29: input validation on API routes', () => {
     mockMeterDb()
     const res = await postMeter(
       makeMeterRequest({
-        cooperative_id: '123e4567-e89b-12d3-a456-426614174000',
-        serial_number: 'SN-001',
-        pubkey_hex: 'a'.repeat(64),
-      })
-    )
-    expect(res.status).toBe(400)
-  })
-
-  it('test_issue_29_meters_rejects_invalid_cooperative_id', async () => {
-    mockMeterDb()
-    const res = await postMeter(
-      makeMeterRequest({
-        name: 'Panel A',
-        cooperative_id: 'not-a-uuid',
         serial_number: 'SN-001',
         pubkey_hex: 'a'.repeat(64),
       })
@@ -246,12 +250,25 @@ describe('regression issue_29: input validation on API routes', () => {
     const res = await postMeter(
       makeMeterRequest({
         name: 'Panel A',
-        cooperative_id: '123e4567-e89b-12d3-a456-426614174000',
         serial_number: 'SN-001',
         pubkey_hex: 'tooshort',
       })
     )
     expect(res.status).toBe(400)
+  })
+
+  it('test_issue_351_meters_enforces_individual_limit', async () => {
+    mockMeterDb({ accountType: 'individual', meterCount: 1 })
+    const res = await postMeter(
+      makeMeterRequest({
+        name: 'Second Meter',
+        serial_number: 'SN-002',
+        pubkey_hex: 'b'.repeat(64),
+      })
+    )
+    expect(res.status).toBe(403)
+    const json = await res.json()
+    expect(json.error).toMatch(/limited to 1 meter/i)
   })
 
   it('test_issue_29_validation_runs_before_db_access', async () => {
@@ -274,6 +291,7 @@ describe('regression issue_49: Stellar account existence check before minting', 
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GADMIN123' },
     })
 
@@ -290,6 +308,7 @@ describe('regression issue_49: Stellar account existence check before minting', 
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GNONEXISTENT' },
     })
 
@@ -314,6 +333,7 @@ describe('regression issue_49: Stellar account existence check before minting', 
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GNOTRUSTED' },
     })
 
@@ -335,6 +355,7 @@ describe('regression issue_49: Stellar account existence check before minting', 
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: null, // no admin address
     })
 
@@ -357,6 +378,7 @@ describe('regression issue_73: reading deduplication at API layer', () => {
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GADMIN123' },
     })
 
@@ -379,6 +401,7 @@ describe('regression issue_73: reading deduplication at API layer', () => {
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GADMIN123' },
     })
 
@@ -401,6 +424,7 @@ describe('regression issue_73: reading deduplication at API layer', () => {
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GADMIN123' },
     })
 
@@ -418,6 +442,7 @@ describe('regression issue_73: reading deduplication at API layer', () => {
       id: METER_ID,
       pubkey_hex: pubKeyHex,
       cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
       cooperatives: { admin_address: 'GADMIN123' },
     })
 

@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp } from 'lucide-react'
 import { useWallet } from '@/hooks/useWallet'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type VoteChoice = 'for' | 'against' | 'abstain'
-type ProposalStatus = 'active' | 'passed' | 'rejected' | 'pending'
+type ProposalStatus = 'active' | 'passed' | 'rejected' | 'pending' | 'expired'
 
 interface Tally { for: number; against: number; abstain: number }
 
@@ -17,45 +18,55 @@ interface Proposal {
   description: string
   status: ProposalStatus
   tally: Tally
-  endsAt: Date
+  ends_at: string
   userVote?: VoteChoice
 }
 
-// ── Seed data (replaced by real contract calls in production) ──────────────────
+// ── Fetchers ──────────────────────────────────────────────────────────────────
 
-const SEED: Proposal[] = [
-  {
-    id: 'prop-001',
-    title: 'Increase minimum meter reading interval to 15 minutes',
-    description: 'Reduce on-chain anchoring costs by batching readings every 15 minutes instead of every 5.',
-    status: 'active',
-    tally: { for: 142, against: 38, abstain: 12 },
-    endsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: 'prop-002',
-    title: 'Add support for wind energy certificates',
-    description: 'Extend the energy_token contract to support wind generation alongside solar.',
-    status: 'active',
-    tally: { for: 89, against: 61, abstain: 5 },
-    endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: 'prop-003',
-    title: 'Integrate I-REC bridge (v1)',
-    description: 'Build a bridge to the I-REC registry so SolarProof certificates can be cross-listed.',
-    status: 'passed',
-    tally: { for: 210, against: 30, abstain: 8 },
-    endsAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-  },
-]
+async function fetchProposals(): Promise<Proposal[]> {
+  const res = await fetch('/api/governance')
+  if (!res.ok) throw new Error('Failed to load proposals')
+  return res.json()
+}
+
+async function createProposal(body: {
+  title: string
+  description: string
+  action: string
+  days: number
+}): Promise<Proposal> {
+  const res = await fetch('/api/governance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? 'Failed to create proposal')
+  }
+  return res.json()
+}
+
+async function castVote(proposalId: string, choice: VoteChoice): Promise<void> {
+  const res = await fetch(`/api/governance/${proposalId}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ choice }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? 'Failed to cast vote')
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function totalVotes(t: Tally) { return t.for + t.against + t.abstain }
 function pct(n: number, total: number) { return total === 0 ? 0 : Math.round((n / total) * 100) }
 
-function countdown(endsAt: Date): string {
+function countdown(endsAtStr: string): string {
+  const endsAt = new Date(endsAtStr)
   const diff = endsAt.getTime() - Date.now()
   if (diff <= 0) return 'Ended'
   const d = Math.floor(diff / 86_400_000)
@@ -68,6 +79,7 @@ const STATUS_BADGE: Record<ProposalStatus, string> = {
   passed: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
   rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  expired: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -143,7 +155,7 @@ function ProposalCard({
   walletConnected: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const isActive = proposal.status === 'active'
+  const isActive = proposal.status === 'active' && new Date(proposal.ends_at) > new Date()
 
   return (
     <article
@@ -159,7 +171,7 @@ function ProposalCard({
             {isActive && (
               <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                 <Clock className="h-3 w-3" aria-hidden="true" />
-                {countdown(proposal.endsAt)}
+                {countdown(proposal.ends_at)}
               </span>
             )}
           </div>
@@ -211,15 +223,32 @@ function ProposalCard({
 
 // ── Create Proposal Form ───────────────────────────────────────────────────────
 
-interface FormState { title: string; description: string; days: string }
-const EMPTY: FormState = { title: '', description: '', days: '7' }
+interface FormState { title: string; description: string; days: string; action: string }
+const EMPTY: FormState = { title: '', description: '', days: '7', action: '' }
 
-function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void }) {
+function CreateProposalForm({ onCreated }: { onCreated: () => void }) {
   const { connected, connect } = useWallet()
   const [form, setForm] = useState<FormState>(EMPTY)
   const [errors, setErrors] = useState<Partial<FormState>>({})
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: (data: typeof form) => createProposal({
+      title: data.title,
+      description: data.description,
+      action: data.action,
+      days: Number(data.days),
+    }),
+    onSuccess: () => {
+      onCreated()
+      setForm(EMPTY)
+      setErrors({})
+      setSuccess(true)
+      setTimeout(() => setSuccess(false), 3000)
+    },
+    onError: (err: Error) => alert(err.message),
+  })
 
   function validate(): boolean {
     const e: Partial<FormState> = {}
@@ -227,6 +256,7 @@ function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void })
     if (!form.description.trim()) e.description = 'Description is required.'
     const d = Number(form.days)
     if (!form.days || isNaN(d) || d < 1 || d > 30) e.days = 'Enter a number between 1 and 30.'
+    if (!form.action.trim()) e.action = 'Proposed action is required.'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -237,23 +267,7 @@ function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void })
     if (!connected) {
       try { await connect() } catch { return }
     }
-    setSubmitting(true)
-    // Simulate wallet signature + contract call
-    await new Promise((r) => setTimeout(r, 800))
-    const newProposal: Proposal = {
-      id: `prop-${Date.now()}`,
-      title: form.title.trim(),
-      description: form.description.trim(),
-      status: 'active',
-      tally: { for: 0, against: 0, abstain: 0 },
-      endsAt: new Date(Date.now() + Number(form.days) * 86_400_000),
-    }
-    onCreated(newProposal)
-    setForm(EMPTY)
-    setErrors({})
-    setSubmitting(false)
-    setSuccess(true)
-    setTimeout(() => setSuccess(false), 3000)
+    mutation.mutate(form)
   }
 
   return (
@@ -302,7 +316,22 @@ function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void })
           />
         </Field>
 
-        <Field id="prop-days" label="Voting period (days)" error={errors.days}>
+        <Field id="prop-action" label="Proposed action" error={errors.action}>
+          <input
+            id="prop-action"
+            type="text"
+            value={form.action}
+            onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
+            maxLength={200}
+            aria-required="true"
+            aria-describedby={errors.action ? 'prop-action-err' : undefined}
+            aria-invalid={!!errors.action}
+            placeholder="e.g. update_param, call_contract, transfer_funds"
+            className="input-base"
+          />
+        </Field>
+
+        <Field id="prop-days" label="Voting deadline (days)" error={errors.days}>
           <input
             id="prop-days"
             type="number"
@@ -319,12 +348,12 @@ function CreateProposalForm({ onCreated }: { onCreated: (p: Proposal) => void })
 
         <button
           type="submit"
-          disabled={submitting}
-          aria-busy={submitting}
+          disabled={mutation.isPending}
+          aria-busy={mutation.isPending}
           className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
-          {submitting ? 'Submitting…' : connected ? 'Submit Proposal' : 'Connect Wallet & Submit'}
+          {mutation.isPending ? 'Submitting…' : connected ? 'Submit Proposal' : 'Connect Wallet & Submit'}
         </button>
       </form>
     </section>
@@ -362,27 +391,33 @@ function Field({
 
 export default function GovernancePage() {
   const { connected } = useWallet()
-  const [proposals, setProposals] = useState<Proposal[]>(SEED)
+  const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
 
+  const { data: proposals = [], isLoading, error } = useQuery({
+    queryKey: ['proposals'],
+    queryFn: fetchProposals,
+  })
+
+  const voteMutation = useMutation({
+    mutationFn: ({ id, choice }: { id: string; choice: VoteChoice }) => castVote(id, choice),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['proposals'] })
+    },
+    onError: (err: Error) => alert(err.message),
+  })
+
   function handleVote(id: string, choice: VoteChoice) {
-    setProposals((prev) =>
-      prev.map((p) => {
-        if (p.id !== id) return p
-        const tally = { ...p.tally }
-        tally[choice] += 1
-        return { ...p, tally, userVote: choice }
-      })
-    )
+    voteMutation.mutate({ id, choice })
   }
 
-  function handleCreated(proposal: Proposal) {
-    setProposals((prev) => [proposal, ...prev])
+  function handleCreated() {
+    qc.invalidateQueries({ queryKey: ['proposals'] })
     setShowForm(false)
   }
 
-  const active = proposals.filter((p) => p.status === 'active')
-  const closed = proposals.filter((p) => p.status !== 'active')
+  const active = proposals.filter((p) => p.status === 'active' && new Date(p.ends_at) > new Date())
+  const closed = proposals.filter((p) => p.status !== 'active' || new Date(p.ends_at) <= new Date())
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:py-10">
@@ -392,7 +427,7 @@ export default function GovernancePage() {
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">Governance</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Community proposals for the SolarProof cooperative.
+              Community proposals for your cooperative.
             </p>
           </div>
         </div>
@@ -413,7 +448,19 @@ export default function GovernancePage() {
         </div>
       )}
 
-      {active.length > 0 && (
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">
+          Failed to load proposals.
+        </p>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2].map((i) => (
+            <div key={i} className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+          ))}
+        </div>
+      ) : active.length > 0 ? (
         <section aria-labelledby="active-heading" className="mb-8">
           <h2 id="active-heading" className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
             Active ({active.length})
@@ -424,9 +471,9 @@ export default function GovernancePage() {
             ))}
           </div>
         </section>
-      )}
+      ) : null}
 
-      {closed.length > 0 && (
+      {!isLoading && closed.length > 0 && (
         <section aria-labelledby="closed-heading">
           <h2 id="closed-heading" className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
             Closed ({closed.length})
@@ -437,6 +484,12 @@ export default function GovernancePage() {
             ))}
           </div>
         </section>
+      )}
+
+      {!isLoading && active.length === 0 && closed.length === 0 && (
+        <p className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+          No proposals found for your cooperative.
+        </p>
       )}
     </div>
   )

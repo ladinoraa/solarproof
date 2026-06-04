@@ -76,7 +76,10 @@ export async function enqueue(
 // ── Worker (runs in the same Node process for simplicity) ────────────────────
 
 /**
- * Start the BullMQ worker that consumes `stellar-transactions` jobs.
+ * Process a single job by ID, retrying up to `MAX_ATTEMPTS` times on failure.
+ *
+ * Retries use exponential back-off (2 s, 4 s, 8 s). After all attempts are
+ * exhausted the job is marked `'failed'` and moved to the dead-letter queue.
  *
  * Call once from `apps/web/src/instrumentation.ts` (server-side only).
  */
@@ -142,6 +145,7 @@ async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<s
   const mintTxHash = await mintCertificates(recipientAddress, kwh, correlationId)
   await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', readingId)
 
+  // Fetch cooperative_id for certificate insert and webhooks
   const { data: reading } = await db
     .from('readings')
     .select('meter_id, meters(cooperative_id)')

@@ -11,10 +11,14 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
-    "dev": { "cache": false, "persistent": true },
+    "dev": { "cache": false "persistent": true},
     "lint": { "dependsOn": ["^lint"] },
     "type-check": { "dependsOn": ["^type-check"] },
-    "test": { "cache": false },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["coverage/**"]
+    },
     "clean": { "cache": false }
   }
 }
