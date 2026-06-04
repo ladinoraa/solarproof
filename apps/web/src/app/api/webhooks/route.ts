@@ -14,9 +14,13 @@ const VALID_EVENTS = [
 
 const WebhookSchema = z.object({
   cooperative_id: z.string().uuid(),
-  url: z.string().url(),
-  secret: z.string().min(16),
+  url: z.string().trim().url(),
+  secret: z.string().trim().min(16),
   events: z.array(z.enum(VALID_EVENTS)).min(1),
+})
+
+const QuerySchema = z.object({
+  cooperative_id: z.string().uuid(),
 })
 
 /**
@@ -53,10 +57,14 @@ export async function POST(req: NextRequest) {
  * List registered webhook endpoints for a cooperative.
  */
 export async function GET(req: NextRequest) {
-  const cooperativeId = req.nextUrl.searchParams.get('cooperative_id')
-  if (!cooperativeId) {
-    return NextResponse.json({ error: 'cooperative_id is required' }, { status: 400 })
+  const queryParams = Object.fromEntries(req.nextUrl.searchParams.entries())
+  const parsedQuery = QuerySchema.safeParse(queryParams)
+  
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
   }
+
+  const { cooperative_id: cooperativeId } = parsedQuery.data
 
   const db = createServiceClient()
   const { data, error } = await db

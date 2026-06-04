@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { env } from '@/env'
 
-const RefreshSchema = z.object({ refresh_token: z.string().min(1) })
+const RefreshSchema = z.object({ refresh_token: z.string().trim().min(1) })
 
 /** POST /api/auth/refresh — rotate refresh token and return new token pair */
 export async function POST(req: NextRequest) {

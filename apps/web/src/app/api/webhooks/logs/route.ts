@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+
+const QuerySchema = z.object({
+  endpoint_id: z.string().uuid(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+})
 
 /**
  * GET /api/webhooks/logs?endpoint_id=UUID&limit=50
@@ -8,13 +14,14 @@ import { createServiceClient } from '@/lib/supabase'
  * Ordered by most recent first.
  */
 export async function GET(req: NextRequest) {
-  const { searchParams } = req.nextUrl
-  const endpointId = searchParams.get('endpoint_id')
-  const limit = Math.min(Number(searchParams.get('limit') ?? 50), 200)
+  const queryParams = Object.fromEntries(req.nextUrl.searchParams.entries())
+  const parsed = QuerySchema.safeParse(queryParams)
 
-  if (!endpointId) {
-    return NextResponse.json({ error: 'endpoint_id is required' }, { status: 400 })
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
+
+  const { endpoint_id: endpointId, limit } = parsed.data
 
   const db = createServiceClient()
   const { data, error } = await db

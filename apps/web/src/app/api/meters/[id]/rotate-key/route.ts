@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { randomBytes } from 'crypto'
 import { createServiceClient } from '@/lib/supabase'
 import { requireAuth, isAuthError } from '@/lib/auth'
+
+const ParamsSchema = z.object({ id: z.string().uuid() })
 
 /**
  * POST /api/meters/[id]/rotate-key
@@ -17,7 +20,13 @@ export async function POST(
   const auth = await requireAuth(req)
   if (isAuthError(auth)) return auth
 
-  const { id } = await params
+  const resolvedParams = await params
+  const parsedParams = ParamsSchema.safeParse(resolvedParams)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 })
+  }
+
+  const { id } = parsedParams.data
   const newKey = 'mk_' + randomBytes(32).toString('hex')
 
   const db = createServiceClient()

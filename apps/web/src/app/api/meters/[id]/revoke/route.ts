@@ -5,8 +5,10 @@ import { requireAuth, isAuthError } from '@/lib/auth'
 import { auditLog } from '@/lib/audit'
 
 const RevokeSchema = z.object({
-  reason: z.string().min(1).max(500),
+  reason: z.string().trim().min(1).max(500),
 })
+
+const ParamsSchema = z.object({ id: z.string().uuid() })
 
 /**
  * POST /api/meters/[id]/revoke
@@ -23,7 +25,13 @@ export async function POST(
   const auth = await requireAuth(req)
   if (isAuthError(auth)) return auth
 
-  const { id } = await params
+  const resolvedParams = await params
+  const parsedParams = ParamsSchema.safeParse(resolvedParams)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 })
+  }
+
+  const { id } = parsedParams.data
   const body = await req.json().catch(() => ({}))
   const parsed = RevokeSchema.safeParse(body)
   
