@@ -4,9 +4,29 @@ export interface Database {
   public: {
     Tables: {
       cooperatives: {
-        Row: { id: string; name: string; admin_address: string; created_at: string; suspended: boolean }
-        Insert: { name: string; admin_address: string; suspended?: boolean }
-        Update: Partial<{ name: string; admin_address: string; suspended: boolean }>
+        Row: { id: string; name: string; admin_address: string; created_at: string; suspended: boolean; account_type: 'individual' | 'cooperative' }
+        Insert: { name: string; admin_address: string; suspended?: boolean; account_type?: 'individual' | 'cooperative' }
+        Update: Partial<{ name: string; admin_address: string; suspended: boolean; account_type: 'individual' | 'cooperative' }>
+        Relationships: []
+      }
+      proposals: {
+        Row: {
+          id: string; cooperative_id: string; title: string; description: string
+          status: 'active' | 'passed' | 'rejected'; action: string | null; ends_at: string; created_at: string
+        }
+        Insert: {
+          cooperative_id: string; title: string; description: string
+          status?: 'active' | 'passed' | 'rejected'; action?: string | null; ends_at: string
+        }
+        Update: Partial<{
+          title: string; description: string; status: 'active' | 'passed' | 'rejected'; action: string | null; ends_at: string
+        }>
+        Relationships: []
+      }
+      votes: {
+        Row: { proposal_id: string; voter_id: string; choice: 'for' | 'against' | 'abstain'; created_at: string }
+        Insert: { proposal_id: string; voter_id: string; choice: 'for' | 'against' | 'abstain' }
+        Update: Partial<{ choice: 'for' | 'against' | 'abstain' }>
         Relationships: []
       }
       meters: {

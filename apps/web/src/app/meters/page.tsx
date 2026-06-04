@@ -26,7 +26,6 @@ async function fetchMeters(): Promise<Meter[]> {
 
 async function registerMeter(body: {
   name: string
-  cooperative_id: string
   serial_number: string
   pubkey_hex: string
   meter_group?: string
@@ -55,7 +54,6 @@ async function revokeMeter(id: string): Promise<void> {
 function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
   const [form, setForm] = useState({
     name: '',
-    cooperative_id: '',
     serial_number: '',
     pubkey_hex: '',
     meter_group: '',
@@ -78,7 +76,6 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
     onSuccess: () => {
       setForm({
         name: '',
-        cooperative_id: '',
         serial_number: '',
         pubkey_hex: '',
         meter_group: '',
@@ -106,6 +103,12 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
         Register new meter
       </h2>
 
+      {error && (
+        <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">
+          {error}
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label
@@ -121,24 +124,6 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="Solar Array A - Meter 1"
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="cooperative_id"
-            className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-          >
-            Cooperative ID (UUID)
-          </label>
-          <input
-            id="cooperative_id"
-            type="text"
-            required
-            value={form.cooperative_id}
-            onChange={(e) => setForm((f) => ({ ...f, cooperative_id: e.target.value }))}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
           />
         </div>

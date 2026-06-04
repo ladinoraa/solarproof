@@ -43,6 +43,7 @@ export default function CertificatesPage() {
   const { toast, dismiss } = useToast()
   const { address, connected } = useWallet()
   const [retiring, setRetiring] = useState<Certificate | null>(null)
+  const [transferring, setTransferring] = useState<Certificate | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRetiring, setBulkRetiring] = useState(false)
 
