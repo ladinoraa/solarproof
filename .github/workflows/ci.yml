@@ -14,6 +14,16 @@ jobs:
   web:
     name: Web (lint + type-check + test + build)
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +72,7 @@ jobs:
           NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID: placeholder
           SUPABASE_SERVICE_ROLE_KEY: placeholder
           MINTER_SECRET_KEY: SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          REDIS_URL: redis://localhost:6379
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 

@@ -1,114 +1,138 @@
 /**
- * Lightweight async job queue backed by Supabase.
+ * Job queue powered by BullMQ + Redis.
  *
- * Usage:
- *   const jobId = await enqueue('anchor_and_mint', { readingId, ... })
- *   // returns immediately; worker processes in background
+ * - `enqueue` adds a job to Redis and returns the job ID immediately.
+ * - A `Worker` processes jobs asynchronously outside the HTTP request cycle.
+ * - Failed jobs are retried up to 3 times with exponential back-off.
+ * - Jobs that exhaust all attempts land in BullMQ's built-in failed set
+ *   (acts as the dead-letter queue).
+ *
+ * The Supabase `jobs` table is kept in sync so callers can poll
+ * `GET /api/jobs/:id` for status via the existing HTTP endpoint.
  */
+import { Queue, Worker, type Job } from 'bullmq'
 import { createServiceClient } from '@/lib/supabase'
+import { getRedisConnection } from '@/lib/redis'
 
 export type JobType = 'anchor_and_mint'
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
 
-const MAX_ATTEMPTS = 3
+const QUEUE_NAME = 'stellar-transactions'
+
+const BACKOFF = {
+  type: 'exponential' as const,
+  delay: 2_000, // 2 s → 4 s → 8 s
+}
+
+// Lazily-created queue instance (safe to call during SSR/build)
+let _queue: Queue | null = null
+function getQueue(): Queue {
+  if (!_queue) {
+    _queue = new Queue(QUEUE_NAME, {
+      connection: getRedisConnection(),
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: BACKOFF,
+        removeOnComplete: { count: 500 },
+        removeOnFail: false, // keep failed jobs for inspection (dead-letter)
+      },
+    })
+  }
+  return _queue
+}
 
 /**
- * Enqueue a background job and return its ID.
+ * Enqueue a background job and return its BullMQ job ID immediately.
  *
- * The job is persisted to Supabase and then processed asynchronously
- * (fire-and-forget). The caller receives the job ID immediately and can
- * poll `GET /api/jobs/[id]` for completion status.
+ * The reading has already been persisted before this call; this only
+ * schedules the Stellar anchor + mint step asynchronously.
  *
- * @param type - Job type identifier (e.g. `'anchor_and_mint'`).
- * @param payload - Serialisable job payload passed to the handler.
- * @returns UUID of the newly created job record.
- * @throws If the Supabase insert fails.
+ * @returns BullMQ job ID (string).
  */
-export async function enqueue(type: JobType, payload: Record<string, unknown>): Promise<string> {
+export async function enqueue(
+  type: JobType,
+  payload: Record<string, unknown>
+): Promise<string> {
   const db = createServiceClient()
+
+  // Persist a job record so the HTTP poll endpoint works immediately
   const { data, error } = await db
     .from('jobs')
     .insert({ type, payload, status: 'pending', attempts: 0 })
     .select('id')
     .single()
 
-  if (error || !data) throw new Error(`Failed to enqueue job: ${error?.message}`)
+  if (error || !data) throw new Error(`Failed to persist job: ${error?.message}`)
 
-  // Fire-and-forget: process in background without blocking the response
-  processJob(data.id).catch((err) =>
-    console.error(`[queue] background processing error job=${data.id}`, err)
-  )
+  const dbJobId: string = data.id
 
-  return data.id
+  // Push to Redis queue; use the Supabase UUID as the BullMQ job name
+  // so we can correlate them.
+  await getQueue().add(type, { ...payload, dbJobId }, { jobId: dbJobId })
+
+  return dbJobId
 }
+
+// ── Worker (runs in the same Node process for simplicity) ────────────────────
 
 /**
- * Process a single job by ID, retrying up to `MAX_ATTEMPTS` times on failure.
+ * Start the BullMQ worker that consumes `stellar-transactions` jobs.
  *
- * Retries use exponential back-off (2 s, 4 s, 8 s). After all attempts are
- * exhausted the job is marked `'failed'` and no further retries occur.
- *
- * @param jobId - UUID of the job record to process.
+ * Call once from `apps/web/src/instrumentation.ts` (server-side only).
  */
-export async function processJob(jobId: string): Promise<void> {
+export function startWorker(): Worker {
+  const worker = new Worker(QUEUE_NAME, processJob, {
+    connection: getRedisConnection(),
+    concurrency: 2,
+  })
+
+  worker.on('failed', (job, err) => {
+    console.error(`[queue] job ${job?.id} failed permanently`, err.message)
+  })
+
+  return worker
+}
+
+// ── Job handler ──────────────────────────────────────────────────────────────
+
+async function processJob(job: Job): Promise<void> {
   const db = createServiceClient()
+  const { dbJobId, ...payload } = job.data as Record<string, unknown> & { dbJobId: string }
 
-  const { data: job } = await db
-    .from('jobs')
-    .select('*')
-    .eq('id', jobId)
-    .single()
-
-  if (!job || job.status === 'done') return
-
-  const attempts = job.attempts + 1
-  await db.from('jobs').update({ status: 'running', attempts }).eq('id', jobId)
+  // Mark running in Supabase
+  await db.from('jobs').update({ status: 'running', attempts: job.attemptsMade + 1 }).eq('id', dbJobId)
 
   try {
-    const result = await runJob(job.type as JobType, job.payload as Record<string, unknown>)
-    await db.from('jobs').update({ status: 'done', result }).eq('id', jobId)
+    const result = await runAnchorAndMint(payload as AnchorAndMintPayload)
+    await db.from('jobs').update({ status: 'done', result }).eq('id', dbJobId)
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err)
-    if (attempts < MAX_ATTEMPTS) {
-      // Exponential back-off: 2s, 4s, 8s
-      const delay = 2 ** attempts * 1000
-      await db.from('jobs').update({ status: 'pending', error }).eq('id', jobId)
-      setTimeout(() => processJob(jobId).catch(console.error), delay)
-    } else {
-      await db.from('jobs').update({ status: 'failed', error }).eq('id', jobId)
-    }
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    const isFinal = job.attemptsMade + 1 >= (job.opts.attempts ?? 3)
+    await db
+      .from('jobs')
+      .update({ status: isFinal ? 'failed' : 'pending', error: errorMsg })
+      .eq('id', dbJobId)
+    throw err // re-throw so BullMQ applies back-off / moves to failed set
   }
 }
 
-/** Dispatch to the correct handler based on job type. */
-async function runJob(
-  type: JobType,
-  payload: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  switch (type) {
-    case 'anchor_and_mint':
-      return runAnchorAndMint(payload)
-    default:
-      throw new Error(`Unknown job type: ${type}`)
-  }
+// ── Anchor-and-mint handler ──────────────────────────────────────────────────
+
+interface AnchorAndMintPayload {
+  readingId: string
+  readingHashHex: string
+  recipientAddress: string
+  kwh: number
+  correlationId?: string
 }
 
-async function runAnchorAndMint(
-  payload: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  // Lazy import to avoid circular deps
+async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<string, unknown>> {
   const { anchorReading, mintCertificates } = await import('@/lib/stellar')
   const { createServiceClient: svc } = await import('@/lib/supabase')
   const { invalidateCert } = await import('@/lib/cache')
+  const { fireWebhook } = await import('@/lib/webhooks')
 
-  const { readingId, readingHashHex, recipientAddress, kwh, correlationId } = payload as {
-    readingId: string
-    readingHashHex: string
-    recipientAddress: string
-    kwh: number
-    correlationId: string
-  }
-
+  const { readingId, readingHashHex, recipientAddress, kwh, correlationId } = payload
   const db = svc()
   const readingHash = Buffer.from(readingHashHex, 'hex')
 
@@ -118,7 +142,6 @@ async function runAnchorAndMint(
   const mintTxHash = await mintCertificates(recipientAddress, kwh, correlationId)
   await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', readingId)
 
-  // Fetch cooperative_id for certificate insert
   const { data: reading } = await db
     .from('readings')
     .select('meter_id, meters(cooperative_id)')
@@ -138,6 +161,8 @@ async function runAnchorAndMint(
       retired: false,
     })
     await invalidateCert(readingId, readingHashHex, mintTxHash)
+    await fireWebhook(cooperativeId, 'anchor', { reading_id: readingId, anchor_tx_hash: anchorTxHash })
+    await fireWebhook(cooperativeId, 'mint', { reading_id: readingId, mint_tx_hash: mintTxHash, kwh })
   }
 
   return { anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }
