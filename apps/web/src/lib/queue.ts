@@ -12,7 +12,18 @@ export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
 
 const MAX_ATTEMPTS = 3
 
-/** Enqueue a job and return its ID. */
+/**
+ * Enqueue a background job and return its ID.
+ *
+ * The job is persisted to Supabase and then processed asynchronously
+ * (fire-and-forget). The caller receives the job ID immediately and can
+ * poll `GET /api/jobs/[id]` for completion status.
+ *
+ * @param type - Job type identifier (e.g. `'anchor_and_mint'`).
+ * @param payload - Serialisable job payload passed to the handler.
+ * @returns UUID of the newly created job record.
+ * @throws If the Supabase insert fails.
+ */
 export async function enqueue(type: JobType, payload: Record<string, unknown>): Promise<string> {
   const db = createServiceClient()
   const { data, error } = await db
@@ -31,7 +42,14 @@ export async function enqueue(type: JobType, payload: Record<string, unknown>): 
   return data.id
 }
 
-/** Process a single job by ID. Retries up to MAX_ATTEMPTS on failure. */
+/**
+ * Process a single job by ID, retrying up to `MAX_ATTEMPTS` times on failure.
+ *
+ * Retries use exponential back-off (2 s, 4 s, 8 s). After all attempts are
+ * exhausted the job is marked `'failed'` and moved to the dead-letter queue.
+ *
+ * @param jobId - UUID of the job record to process.
+ */
 export async function processJob(jobId: string): Promise<void> {
   const db = createServiceClient()
 
@@ -82,6 +100,7 @@ async function runAnchorAndMint(
   const { anchorReading, mintCertificates } = await import('@/lib/stellar')
   const { createServiceClient: svc } = await import('@/lib/supabase')
   const { invalidateCert } = await import('@/lib/cache')
+  const { fireWebhook } = await import('@/lib/webhooks')
 
   const { readingId, readingHashHex, recipientAddress, kwh, correlationId } = payload as {
     readingId: string
@@ -100,7 +119,7 @@ async function runAnchorAndMint(
   const mintTxHash = await mintCertificates(recipientAddress, kwh, correlationId)
   await db.from('readings').update({ minted: true, mint_tx_hash: mintTxHash }).eq('id', readingId)
 
-  // Fetch cooperative_id for certificate insert
+  // Fetch cooperative_id for certificate insert and webhooks
   const { data: reading } = await db
     .from('readings')
     .select('meter_id, meters(cooperative_id)')
@@ -120,6 +139,8 @@ async function runAnchorAndMint(
       retired: false,
     })
     await invalidateCert(readingId, readingHashHex, mintTxHash)
+    await fireWebhook(cooperativeId, 'anchor', { reading_id: readingId, anchor_tx_hash: anchorTxHash })
+    await fireWebhook(cooperativeId, 'mint', { reading_id: readingId, mint_tx_hash: mintTxHash, kwh })
   }
 
   return { anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }

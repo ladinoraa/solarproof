@@ -21,7 +21,7 @@
 //! |-----|-------------|-------|------|
 //! | `DataKey::Admin` | instance | `Address` | ~57 B |
 //! | `DataKey::TotalAnchors` | instance | `u32` | 4 B |
-//! | `DataKey::Anchor(hash)` | persistent | `AuditAnchor` | 36 B |
+//! | `DataKey::Bucket(id)` | persistent | `Map<BytesN<32>, u32>` | Var |
 //!
 //! ## Invariants
 //! 1. Each `reading_hash` can be anchored at most once.
@@ -36,7 +36,9 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
+};
 
 const VERSION: &str = "1.0.0";
 
@@ -57,15 +59,18 @@ pub struct AuditAnchor {
     pub anchored_at_ledger: u32,
 }
 
-/// Enumeration of all storage keys used by this contract.
+    /// Enumeration of all storage keys used by this contract.
 #[contracttype]
 pub enum DataKey {
     /// `Address` — the contract administrator.
     Admin,
     /// `Address` — the only address authorised to call `anchor()`.
     ApiSigner,
-    /// `AuditAnchor` — keyed by the 32-byte reading hash.
-    Anchor(BytesN<32>),
+    /// Bucketed storage for reading hashes to reduce ledger entry count.
+    /// `Map<BytesN<32>, u32>` — keyed by bucket index (0-1023).
+    Bucket(u32),
+    /// `bool` — keyed by the 32-byte nonce. Used for idempotency.
+    Nonce(BytesN<32>),
     /// `u32` — total number of anchors stored.
     TotalAnchors,
     Version,
@@ -101,32 +106,38 @@ impl AuditRegistry {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::ApiSigner, &api_signer);
+        env.storage()
+            .instance()
+            .set(&DataKey::ApiSigner, &api_signer);
         env.storage().instance().set(&DataKey::TotalAnchors, &0_u32);
-        env.storage().instance().set(&DataKey::Version, &soroban_sdk::String::from_str(&env, VERSION));
+        env.storage().instance().set(
+            &DataKey::Version,
+            &soroban_sdk::String::from_str(&env, VERSION),
+        );
     }
 
     /// Returns the contract version string (e.g. `"1.0.0"`).
     pub fn get_version(env: Env) -> soroban_sdk::String {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&DataKey::Version)
             .unwrap_or_else(|| soroban_sdk::String::from_str(&env, VERSION))
     }
 
     /// Migrate state schema to a new version. Admin-only.
     ///
-    /// # Arguments
-    /// * `new_version` — version string to store (e.g. `"2.0.0"`).
-    ///
-    /// # Authorization
-    /// Requires `admin` authorisation.
-    ///
     /// # Panics
     /// * `"not initialized"` if the contract has not been initialised.
     pub fn migrate(env: Env, new_version: soroban_sdk::String) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Version, &new_version);
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &new_version);
     }
 
     /// Update the authorised API signer address. Admin-only.
@@ -134,75 +145,151 @@ impl AuditRegistry {
     /// # Panics
     /// * `"not initialized"` if the contract has not been initialised.
     pub fn set_api_signer(env: Env, new_signer: soroban_sdk::Address) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
         admin.require_auth();
-        env.storage().instance().set(&DataKey::ApiSigner, &new_signer);
+        env.storage()
+            .instance()
+            .set(&DataKey::ApiSigner, &new_signer);
     }
 
     /// Returns the current authorised API signer address.
-    pub fn api_signer(env: Env) -> soroban_sdk::Address {
-        env.storage().instance().get(&DataKey::ApiSigner).expect("not initialized")
-    }
-
-    /// Anchor a reading hash on-chain.
-    ///
-    /// Only the whitelisted `api_signer` address may call this function.
-    ///
-    /// # Arguments
-    /// * `caller`       — must be the registered `api_signer`.
-    /// * `reading_hash` — SHA-256 of `(meter_id || kwh_stroops_le || timestamp_le)`.
     ///
     /// # Panics
-    /// * `"unauthorized"` if `caller` is not the registered `api_signer`.
-    /// * `"reading already anchored"` if `reading_hash` has been anchored before.
+    /// * `"not initialized"` if the contract has not been initialised.
+    pub fn api_signer(env: Env) -> soroban_sdk::Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::ApiSigner)
+            .expect("not initialized")
+    }
+
+    /// Helper to get bucket ID from a hash (0-1023).
+    fn get_bucket_id(hash: &BytesN<32>) -> u32 {
+        let b0 = hash.get(0).unwrap_or(0) as u32;
+        let b1 = hash.get(1).unwrap_or(0) as u32;
+        ((b0 << 8) | b1) % 1024
+    }
+
+    /// Anchor a reading hash on-chain. Only the registered `api_signer` may call this.
+    ///
+    /// # Arguments
+    /// * `caller`       — must equal the registered `api_signer`.
+    /// * `reading_hash` — 32-byte SHA-256 of `(meter_id || kwh_stroops_le || timestamp_le)`.
+    /// * `nonce`        — 32-byte unique value; prevents replay of the same anchor call.
+    ///
+    /// # Authorization
+    /// Requires `caller` authorisation. Returns `Err(Error::Unauthorized)` if
+    /// `caller` is not the registered `api_signer`.
+    ///
+    /// # Errors
+    /// * `Error::Unauthorized`    — caller is not the `api_signer`.
+    /// * `Error::AlreadyAnchored` — `reading_hash` or `nonce` was already used.
     ///
     /// # Events
-    /// Emits `(topic: "anchor", data: reading_hash)`.
-    pub fn anchor(env: Env, caller: soroban_sdk::Address, reading_hash: BytesN<32>) -> Result<(), Error> {
+    /// Emits `(topic: "anchor", data: (reading_hash, ledger_sequence, ledger_timestamp))`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// client.anchor(&api_signer, &reading_hash, &nonce).unwrap();
+    /// assert!(client.is_anchored(&reading_hash));
+    /// ```
+    pub fn anchor(
+        env: Env,
+        caller: soroban_sdk::Address,
+        reading_hash: BytesN<32>,
+        nonce: soroban_sdk::BytesN<32>,
+    ) -> Result<(), Error> {
         caller.require_auth();
-        let api_signer: Address = env.storage().instance().get(&DataKey::ApiSigner).expect("not initialized");
+        let api_signer: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApiSigner)
+            .expect("not initialized");
         if caller != api_signer {
             return Err(Error::Unauthorized);
         }
 
-        let key = DataKey::Anchor(reading_hash.clone());
-        if env.storage().persistent().has(&key) {
+        // Use temporary storage for nonces (idempotency) to reduce persistent entry costs.
+        let nonce_key = DataKey::Nonce(nonce);
+        if env.storage().temporary().has(&nonce_key) {
             return Err(Error::AlreadyAnchored);
         }
 
-        let anchor = AuditAnchor {
-            reading_hash: reading_hash.clone(),
-            anchored_at_ledger: env.ledger().sequence(),
-        };
+        let bucket_id = Self::get_bucket_id(&reading_hash);
+        let bucket_key = DataKey::Bucket(bucket_id);
+        let mut bucket: Map<BytesN<32>, u32> = env
+            .storage()
+            .persistent()
+            .get(&bucket_key)
+            .unwrap_or_else(|| Map::new(&env));
 
-        env.storage().persistent().set(&key, &anchor);
+        if bucket.contains_key(reading_hash.clone()) {
+            return Err(Error::AlreadyAnchored);
+        }
 
-        let count: u32 = env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAnchors, &(count + 1));
+        env.storage().temporary().set(&nonce_key, &true);
+
+        bucket.set(reading_hash.clone(), env.ledger().sequence());
+        env.storage().persistent().set(&bucket_key, &bucket);
+
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalAnchors)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAnchors, &(count + 1));
 
         env.events().publish(
             (symbol_short!("anchor"),),
-            (reading_hash, env.ledger().sequence(), env.ledger().timestamp()),
+            (
+                reading_hash,
+                env.ledger().sequence(),
+                env.ledger().timestamp(),
+            ),
         );
         Ok(())
     }
 
     /// Returns the `AuditAnchor` for `reading_hash`, or `None` if not anchored.
     ///
-    /// # Arguments
-    /// * `reading_hash` — 32-byte SHA-256 hash to look up.
+    /// # Example
+    /// ```ignore
+    /// if let Some(anchor) = client.verify(&hash) {
+    ///     println!("anchored at ledger {}", anchor.anchored_at_ledger);
+    /// }
+    /// ```
     pub fn verify(env: Env, reading_hash: BytesN<32>) -> Option<AuditAnchor> {
-        env.storage().persistent().get(&DataKey::Anchor(reading_hash))
+        let bucket_id = Self::get_bucket_id(&reading_hash);
+        let bucket: Map<BytesN<32>, u32> = env.storage().persistent().get(&DataKey::Bucket(bucket_id))?;
+        let anchored_at_ledger = bucket.get(reading_hash.clone())?;
+        Some(AuditAnchor {
+            reading_hash,
+            anchored_at_ledger,
+        })
     }
 
     /// Returns `true` if `reading_hash` has been anchored, `false` otherwise.
     pub fn is_anchored(env: Env, reading_hash: BytesN<32>) -> bool {
-        env.storage().persistent().has(&DataKey::Anchor(reading_hash))
+        let bucket_id = Self::get_bucket_id(&reading_hash);
+        let bucket: Option<Map<BytesN<32>, u32>> = env.storage().persistent().get(&DataKey::Bucket(bucket_id));
+        match bucket {
+            Some(b) => b.contains_key(reading_hash),
+            None => false,
+        }
     }
 
     /// Returns the total number of reading hashes anchored so far.
     pub fn total_anchors(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::TotalAnchors).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalAnchors)
+            .unwrap_or(0)
     }
 
     /// Returns the admin address.
@@ -210,7 +297,10 @@ impl AuditRegistry {
     /// # Panics
     /// * `"not initialized"` if the contract has not been initialised.
     pub fn admin(env: Env) -> soroban_sdk::Address {
-        env.storage().instance().get(&DataKey::Admin).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
     }
 }
 
@@ -238,13 +328,16 @@ mod tests {
         BytesN::from_array(env, &[1u8; 32])
     }
 
-    // ── anchor + verify ──────────────────────────────────────────────────────
+    fn make_nonce(env: &Env, val: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[val; 32])
+    }
 
     #[test]
     fn test_anchor_and_verify() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h).unwrap();
+        let n = make_nonce(&env, 1);
+        client.anchor(&api_signer, &h, &n).unwrap();
         assert!(client.is_anchored(&h));
         assert_eq!(client.total_anchors(), 1);
         let anchor = client.verify(&h).unwrap();
@@ -255,28 +348,40 @@ mod tests {
     fn test_anchor_records_ledger_sequence() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h).unwrap();
+        let n = make_nonce(&env, 1);
+        client.anchor(&api_signer, &h, &n).unwrap();
         let anchor = client.verify(&h).unwrap();
-        // Default test env starts at ledger 0; sequence must be a valid u32.
-        let _ = anchor.anchored_at_ledger; // just assert it's accessible
+        let _ = anchor.anchored_at_ledger;
     }
-
-    // ── deduplication ────────────────────────────────────────────────────────
 
     #[test]
     fn test_duplicate_anchor_rejected() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h).unwrap();
-        assert_eq!(client.anchor(&api_signer, &h), Err(Error::AlreadyAnchored));
+        let n1 = make_nonce(&env, 1);
+        let n2 = make_nonce(&env, 2);
+        client.anchor(&api_signer, &h, &n1).unwrap();
+        assert_eq!(client.anchor(&api_signer, &h, &n2), Err(Error::AlreadyAnchored));
+    }
+
+    #[test]
+    fn test_duplicate_nonce_rejected() {
+        let (env, api_signer, client) = setup();
+        let h1 = BytesN::from_array(&env, &[1u8; 32]);
+        let h2 = BytesN::from_array(&env, &[2u8; 32]);
+        let n = make_nonce(&env, 1);
+        client.anchor(&api_signer, &h1, &n).unwrap();
+        assert_eq!(client.anchor(&api_signer, &h2, &n), Err(Error::AlreadyAnchored));
     }
 
     #[test]
     fn test_duplicate_anchor_does_not_increment_total() {
         let (env, api_signer, client) = setup();
         let h = hash(&env);
-        client.anchor(&api_signer, &h).unwrap();
-        let _ = client.anchor(&api_signer, &h); // second call returns Err
+        let n1 = make_nonce(&env, 1);
+        let n2 = make_nonce(&env, 2);
+        client.anchor(&api_signer, &h, &n1).unwrap();
+        let _ = client.anchor(&api_signer, &h, &n2);
         assert_eq!(client.total_anchors(), 1);
     }
 
@@ -285,20 +390,21 @@ mod tests {
         let (env, api_signer, client) = setup();
         let h1 = BytesN::from_array(&env, &[0xAAu8; 32]);
         let h2 = BytesN::from_array(&env, &[0xBBu8; 32]);
-        client.anchor(&api_signer, &h1).unwrap();
-        client.anchor(&api_signer, &h2).unwrap();
+        client.anchor(&api_signer, &h1, &make_nonce(&env, 1)).unwrap();
+        client.anchor(&api_signer, &h2, &make_nonce(&env, 2)).unwrap();
         assert!(client.is_anchored(&h1));
         assert!(client.is_anchored(&h2));
         assert_eq!(client.total_anchors(), 2);
     }
 
-    // ── unauthorized access ──────────────────────────────────────────────────
-
     #[test]
     fn test_unauthorized_caller_rejected() {
         let (env, _api_signer, client) = setup();
         let attacker = soroban_sdk::Address::generate(&env);
-        assert_eq!(client.anchor(&attacker, &hash(&env)), Err(Error::Unauthorized));
+        assert_eq!(
+            client.anchor(&attacker, &hash(&env), &make_nonce(&env, 1)),
+            Err(Error::Unauthorized)
+        );
     }
 
     #[test]
@@ -306,14 +412,11 @@ mod tests {
         let (env, old_signer, client) = setup();
         let new_signer = soroban_sdk::Address::generate(&env);
         client.set_api_signer(&new_signer);
-        // old signer must now be rejected
         assert_eq!(
-            client.anchor(&old_signer, &hash(&env)),
+            client.anchor(&old_signer, &hash(&env), &make_nonce(&env, 1)),
             Err(Error::Unauthorized)
         );
     }
-
-    // ── query functions ──────────────────────────────────────────────────────
 
     #[test]
     fn test_not_anchored_returns_none() {
@@ -326,9 +429,7 @@ mod tests {
     #[test]
     fn test_total_anchors_starts_at_zero() {
         let (env, _api_signer, client) = setup();
-        // Before any anchor call total must be 0
         assert_eq!(client.total_anchors(), 0);
-        // Querying a non-existent hash must not change the count
         let _ = client.verify(&BytesN::from_array(&env, &[0u8; 32]));
         assert_eq!(client.total_anchors(), 0);
     }
@@ -337,7 +438,9 @@ mod tests {
     fn test_total_anchors_increments() {
         let (env, api_signer, client) = setup();
         for i in 0u8..5 {
-            client.anchor(&api_signer, &BytesN::from_array(&env, &[i; 32])).unwrap();
+            client
+                .anchor(&api_signer, &BytesN::from_array(&env, &[i; 32]), &make_nonce(&env, i))
+                .unwrap();
         }
         assert_eq!(client.total_anchors(), 5);
     }
@@ -345,9 +448,8 @@ mod tests {
     #[test]
     fn test_admin_query() {
         let (env, _api_signer, client) = setup();
-        // admin() must return a valid address (not panic)
         let _admin = client.admin();
-        let _ = &env; // suppress unused warning
+        let _ = &env;
     }
 
     #[test]
@@ -356,37 +458,30 @@ mod tests {
         assert_eq!(client.api_signer(), api_signer);
     }
 
-    // ── large payload ────────────────────────────────────────────────────────
-
-    /// Anchor 50 distinct hashes to exercise storage under load.
     #[test]
     fn test_large_number_of_anchors() {
         let (env, api_signer, client) = setup();
         let count: u8 = 50;
         for i in 0..count {
             let h = BytesN::from_array(&env, &[i; 32]);
-            client.anchor(&api_signer, &h).unwrap();
+            client.anchor(&api_signer, &h, &make_nonce(&env, i)).unwrap();
         }
         assert_eq!(client.total_anchors(), u32::from(count));
-        // Spot-check first and last
         assert!(client.is_anchored(&BytesN::from_array(&env, &[0u8; 32])));
         assert!(client.is_anchored(&BytesN::from_array(&env, &[count - 1; 32])));
     }
 
-    /// All-zeros and all-ones hashes are valid and independent.
     #[test]
     fn test_boundary_hash_values() {
         let (env, api_signer, client) = setup();
         let all_zeros = BytesN::from_array(&env, &[0x00u8; 32]);
         let all_ones = BytesN::from_array(&env, &[0xFFu8; 32]);
-        client.anchor(&api_signer, &all_zeros).unwrap();
-        client.anchor(&api_signer, &all_ones).unwrap();
+        client.anchor(&api_signer, &all_zeros, &make_nonce(&env, 1)).unwrap();
+        client.anchor(&api_signer, &all_ones, &make_nonce(&env, 2)).unwrap();
         assert!(client.is_anchored(&all_zeros));
         assert!(client.is_anchored(&all_ones));
         assert_eq!(client.total_anchors(), 2);
     }
-
-    // ── admin operations ─────────────────────────────────────────────────────
 
     #[test]
     #[should_panic(expected = "already initialized")]
@@ -403,7 +498,7 @@ mod tests {
         let new_signer = soroban_sdk::Address::generate(&env);
         client.set_api_signer(&new_signer);
         let h = hash(&env);
-        client.anchor(&new_signer, &h).unwrap();
+        client.anchor(&new_signer, &h, &make_nonce(&env, 1)).unwrap();
         assert!(client.is_anchored(&h));
     }
 
@@ -418,6 +513,31 @@ mod tests {
     #[test]
     fn test_version() {
         let (env, _api_signer, client) = setup();
-        assert_eq!(client.get_version(), soroban_sdk::String::from_str(&env, "1.0.0"));
+        assert_eq!(
+            client.get_version(),
+            soroban_sdk::String::from_str(&env, "1.0.0")
+        );
+    }
+
+    #[test]
+    fn test_issue_281_bucket_collision() {
+        let (env, api_signer, client) = setup();
+        // Force hashes that likely end up in the same bucket
+        // Our bucket ID is ((hash[0] << 8) | hash[1]) % 1024
+        // So any hash starting with 0x00 0x00 will be in bucket 0.
+        let mut h1_arr = [0u8; 32];
+        h1_arr[2] = 1;
+        let h1 = BytesN::from_array(&env, &h1_arr);
+        
+        let mut h2_arr = [0u8; 32];
+        h2_arr[2] = 2;
+        let h2 = BytesN::from_array(&env, &h2_arr);
+        
+        client.anchor(&api_signer, &h1, &make_nonce(&env, 1)).unwrap();
+        client.anchor(&api_signer, &h2, &make_nonce(&env, 2)).unwrap();
+        
+        assert!(client.is_anchored(&h1));
+        assert!(client.is_anchored(&h2));
+        assert_eq!(client.total_anchors(), 2);
     }
 }

@@ -2,6 +2,8 @@
 
 Cooperative on-chain governance — token holders submit proposals and vote. A proposal passes when `yes_votes / total_votes ≥ quorum%` after the voting period ends.
 
+For best practices on configuring these parameters, see the [Governance Parameter Tuning Guide](../governance_tuning_guide.md).
+
 - **SDK:** Soroban SDK 23.1.0 / OpenZeppelin Stellar v0.5.1
 
 ---

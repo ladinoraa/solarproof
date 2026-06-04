@@ -32,23 +32,42 @@ jobs:
         run: stellar contract build
         working-directory: apps/contracts
       - name: Deploy energy_token
+        id: deploy-energy
         run: |
-          stellar contract deploy \
+          echo "contract_id=$(stellar contract deploy \
             --wasm target/wasm32-unknown-unknown/release/energy_token.wasm \
             --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
-            --network ${{ github.event.inputs.network || 'testnet' }}
+            --network ${{ github.event.inputs.network || 'testnet' }})" >> $GITHUB_OUTPUT
         working-directory: apps/contracts
       - name: Deploy audit_registry
+        id: deploy-registry
         run: |
-          stellar contract deploy \
+          echo "contract_id=$(stellar contract deploy \
             --wasm target/wasm32-unknown-unknown/release/audit_registry.wasm \
             --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
-            --network ${{ github.event.inputs.network || 'testnet' }}
+            --network ${{ github.event.inputs.network || 'testnet' }})" >> $GITHUB_OUTPUT
         working-directory: apps/contracts
       - name: Deploy community_governance
+        id: deploy-governance
         run: |
-          stellar contract deploy \
+          echo "contract_id=$(stellar contract deploy \
             --wasm target/wasm32-unknown-unknown/release/community_governance.wasm \
             --source ${{ secrets.DEPLOYER_SECRET_KEY }} \
-            --network ${{ github.event.inputs.network || 'testnet' }}
+            --network ${{ github.event.inputs.network || 'testnet' }})" >> $GITHUB_OUTPUT
         working-directory: apps/contracts
+      - name: Setup Node for smoke test
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install JavaScript dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Run post-deployment smoke test
+        run: pnpm exec node scripts/smoke-test.mjs
+        env:
+          SMOKE_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
+          ENERGY_TOKEN_ID: ${{ steps.deploy-energy.outputs.contract_id }}
+          AUDIT_REGISTRY_ID: ${{ steps.deploy-registry.outputs.contract_id }}
+          SMOKE_TOKEN_MINTER_SECRET_KEY: ${{ secrets.SMOKE_TOKEN_MINTER_SECRET_KEY }}
+          SMOKE_METER_SECRET_KEY: ${{ secrets.SMOKE_METER_SECRET_KEY }}
