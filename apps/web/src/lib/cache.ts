@@ -8,41 +8,51 @@ const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env
 const CERT_TTL = 60 // seconds
 
 function redisUrl(path: string) {
+  if (!UPSTASH_REDIS_REST_URL) {
+    throw new Error('UPSTASH_REDIS_REST_URL is not configured')
+  }
   return `${UPSTASH_REDIS_REST_URL}${path}`
 }
 
-async function redisGet<T>(key: string): Promise<T | null> {
-  if (!UPSTASH_REDIS_REST_URL) return null
-  const res = await fetch(redisUrl(`/get/${encodeURIComponent(key)}`), {
-    headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+async function redisFetch(path: string, options: RequestInit = {}) {
+  if (!UPSTASH_REDIS_REST_URL) {
+    throw new Error('UPSTASH_REDIS_REST_URL is not configured')
+  }
+
+  const res = await fetch(redisUrl(path), {
+    headers: {
+      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
     cache: 'no-store',
+    ...options,
   })
+
   const json = await res.json()
+  if (!res.ok) {
+    throw new Error(json.error || 'Redis request failed')
+  }
+  return json
+}
+
+async function redisGet<T>(key: string): Promise<T | null> {
+  const json = await redisFetch(`/get/${encodeURIComponent(key)}`)
   if (json.result == null) return null
   console.log(`[cache] HIT ${key}`)
   return JSON.parse(json.result) as T
 }
 
 async function redisSet(key: string, value: unknown, ttl: number): Promise<void> {
-  if (!UPSTASH_REDIS_REST_URL) return
-  await fetch(redisUrl(`/set/${encodeURIComponent(key)}`), {
+  await redisFetch(`/set/${encodeURIComponent(key)}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ value: JSON.stringify(value), ex: ttl }),
-    cache: 'no-store',
   })
   console.log(`[cache] SET ${key} ttl=${ttl}s`)
 }
 
 async function redisDel(key: string): Promise<void> {
-  if (!UPSTASH_REDIS_REST_URL) return
-  await fetch(redisUrl(`/del/${encodeURIComponent(key)}`), {
+  await redisFetch(`/del/${encodeURIComponent(key)}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
-    cache: 'no-store',
   })
   console.log(`[cache] DEL ${key}`)
 }

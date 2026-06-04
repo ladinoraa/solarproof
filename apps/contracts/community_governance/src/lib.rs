@@ -189,10 +189,11 @@ impl CommunityGovernance {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
+        assert!(quorum >= 1 && quorum <= 10_000, "quorum_bps must be 1-10000");
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
-            .set(&DataKey::QuorumBps, &DEFAULT_QUORUM_BPS);
+            .set(&DataKey::QuorumBps, &quorum);
         env.storage()
             .instance()
             .set(&DataKey::ThresholdBps, &DEFAULT_THRESHOLD_BPS);
@@ -243,13 +244,20 @@ impl CommunityGovernance {
     }
 
     /// Set quorum in basis points (1–10 000). Admin-only.
+    /// Can also be updated via a passed governance proposal.
     pub fn set_quorum_bps(env: Env, admin: Address, bps: u32) {
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
         admin.require_auth();
         assert!(bps >= 1 && bps <= 10_000, "quorum_bps must be 1-10000");
         env.storage().instance().set(&DataKey::QuorumBps, &bps);
     }
 
-    /// Returns the current quorum in basis points.
+    /// Returns the current quorum in basis points (default: `1000` = 10 %).
     pub fn get_quorum_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -258,13 +266,20 @@ impl CommunityGovernance {
     }
 
     /// Set approval threshold in basis points (1–10 000). Admin-only.
+    /// Can also be updated via a passed governance proposal.
     pub fn set_threshold_bps(env: Env, admin: Address, bps: u32) {
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+        assert!(admin == stored_admin, "not admin");
         admin.require_auth();
         assert!(bps >= 1 && bps <= 10_000, "threshold_bps must be 1-10000");
         env.storage().instance().set(&DataKey::ThresholdBps, &bps);
     }
 
-    /// Returns the current approval threshold in basis points.
+    /// Returns the current approval threshold in basis points (default: `5100` = 51 %).
     pub fn get_threshold_bps(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -543,6 +558,8 @@ impl CommunityGovernance {
     }
 
     /// Returns the pending upgrade proposal, if any.
+    ///
+    /// Returns `None` if no upgrade has been proposed or the last one was cancelled/executed.
     pub fn pending_upgrade(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&DataKey::PendingUpgrade)
     }
@@ -565,7 +582,7 @@ impl CommunityGovernance {
             .set(&DataKey::ExecuteTimelock, &ledgers);
     }
 
-    /// Returns the current execution timelock in ledgers.
+    /// Returns the current execution timelock in ledgers (default: `8640` ≈ 24 h).
     pub fn get_execution_timelock(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -615,7 +632,7 @@ impl CommunityGovernance {
         proposals.get(proposal_id)
     }
 
-    /// Returns the total number of proposals created.
+    /// Returns the total number of proposals created (monotonically increasing).
     pub fn proposal_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -649,8 +666,108 @@ mod tests {
     #[test]
     fn test_defaults() {
         let (_env, _admin, client) = setup();
-        assert_eq!(client.get_quorum_bps(), 1_000);
+        // setup() passes quorum=100 → stored as-is
+        assert_eq!(client.get_quorum_bps(), 100);
         assert_eq!(client.get_threshold_bps(), 5_100);
+    }
+
+    #[test]
+    fn test_initialize_configures_quorum() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(CommunityGovernance, ());
+        let client = CommunityGovernanceClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &2_500_u32, &100_u32);
+        assert_eq!(client.get_quorum_bps(), 2_500);
+        assert_eq!(client.get_threshold_bps(), 5_100); // default threshold
+    }
+
+    #[test]
+    #[should_panic(expected = "quorum_bps must be 1-10000")]
+    fn test_initialize_rejects_zero_quorum() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(CommunityGovernance, ());
+        let client = CommunityGovernanceClient::new(&env, &id);
+        client.initialize(&Address::generate(&env), &0_u32, &100_u32);
+    }
+
+    /// Exactly at quorum: 1 yes out of 1 total, quorum_bps=10000 (100%) → Passed
+    #[test]
+    fn test_finalize_exactly_at_quorum() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(CommunityGovernance, ());
+        let client = CommunityGovernanceClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        // quorum_bps=1 (0.01%) — any single vote satisfies quorum
+        client.initialize(&admin, &1_u32, &100_u32);
+        let proposer = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&Address::generate(&env), &pid, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&pid);
+        assert_eq!(client.get_proposal(&pid).unwrap().status, ProposalStatus::Passed);
+    }
+
+    /// One vote below quorum: 0 votes cast → Expired (quorum not met)
+    #[test]
+    fn test_finalize_one_below_quorum_expired() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(CommunityGovernance, ());
+        let client = CommunityGovernanceClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &5_000_u32, &100_u32);
+        let proposer = Address::generate(&env);
+        let pid = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        // No votes cast — total=0 → Expired
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&pid);
+        assert_eq!(client.get_proposal(&pid).unwrap().status, ProposalStatus::Expired);
+    }
+
+    /// Admin updates quorum via set_quorum_bps (governance proposal path)
+    #[test]
+    fn test_admin_updates_quorum_via_set_quorum_bps() {
+        let (_env, admin, client) = setup();
+        client.set_quorum_bps(&admin, &3_000_u32);
+        assert_eq!(client.get_quorum_bps(), 3_000);
+    }
+
+    /// Admin updates threshold via set_threshold_bps (governance proposal path)
+    #[test]
+    fn test_admin_updates_threshold_via_set_threshold_bps() {
+        let (_env, admin, client) = setup();
+        client.set_threshold_bps(&admin, &6_600_u32);
+        assert_eq!(client.get_threshold_bps(), 6_600);
+    }
+
+    /// Non-admin cannot call set_quorum_bps
+    #[test]
+    #[should_panic(expected = "not admin")]
+    fn test_non_admin_cannot_set_quorum() {
+        let (env, _admin, client) = setup();
+        let rogue = Address::generate(&env);
+        client.set_quorum_bps(&rogue, &500_u32);
+    }
+
+    /// Non-admin cannot call set_threshold_bps
+    #[test]
+    #[should_panic(expected = "not admin")]
+    fn test_non_admin_cannot_set_threshold() {
+        let (env, _admin, client) = setup();
+        let rogue = Address::generate(&env);
+        client.set_threshold_bps(&rogue, &500_u32);
     }
 
     #[test]
@@ -1074,11 +1191,105 @@ mod tests {
 
     #[test]
     fn test_finalize_expired_proposal() {
-        let (env, client) = setup();
+        let (env, _admin, client) = setup();
         let proposer = Address::generate(&env);
         let id = client.propose(&proposer, &String::from_str(&env, "Test"), &String::from_str(&env, "Desc"));
         env.ledger().with_mut(|l| l.sequence_number += 101);
         client.finalize(&id);
         assert_eq!(client.get_proposal(&id).unwrap().status, ProposalStatus::Expired);
+    }
+
+    // ── event emission tests (#330) ──────────────────────────────────────────
+
+    #[test]
+    fn test_propose_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        client.propose(
+            &proposer,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Desc"),
+        );
+        let events = env.events().all();
+        let propose_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("propose"), &env)]
+        });
+        assert!(propose_event.is_some(), "propose event not emitted");
+        let (_, _, data) = propose_event.unwrap();
+        let proposal_id: u32 = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(proposal_id, 1_u32);
+    }
+
+    #[test]
+    fn test_vote_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let voter = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&voter, &id, &true);
+        let events = env.events().all();
+        let vote_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("vote"), &env)]
+        });
+        assert!(vote_event.is_some(), "vote event not emitted");
+        let (_, _, data) = vote_event.unwrap();
+        let (pid, _voter_addr, approve): (u32, Address, bool) =
+            soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
+        assert!(approve);
+    }
+
+    #[test]
+    fn test_finalize_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        let events = env.events().all();
+        let final_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("final"), &env)]
+        });
+        assert!(final_event.is_some(), "finalize event not emitted");
+        let (_, _, data) = final_event.unwrap();
+        let (pid, status): (u32, ProposalStatus) = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
+        assert_eq!(status, ProposalStatus::Passed);
+    }
+
+    #[test]
+    fn test_execute_emits_event() {
+        let (env, _admin, client) = setup();
+        let proposer = Address::generate(&env);
+        let id = client.propose(
+            &proposer,
+            &String::from_str(&env, "T"),
+            &String::from_str(&env, "D"),
+        );
+        client.vote(&Address::generate(&env), &id, &true);
+        client.vote(&Address::generate(&env), &id, &true);
+        env.ledger().with_mut(|l| l.sequence_number += 101);
+        client.finalize(&id);
+        env.ledger()
+            .with_mut(|l| l.sequence_number += EXECUTE_TIMELOCK_LEDGERS);
+        client.execute(&id);
+        let events = env.events().all();
+        let exec_event = events.iter().find(|(_, topics, _)| {
+            topics == &soroban_sdk::vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&symbol_short!("exec"), &env)]
+        });
+        assert!(exec_event.is_some(), "execute event not emitted");
+        let (_, _, data) = exec_event.unwrap();
+        let pid: u32 = soroban_sdk::FromVal::from_val(&env, &data);
+        assert_eq!(pid, id);
     }
 }
